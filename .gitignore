@@ -1,0 +1,24 @@
+# Python and editor state
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.venv/
+venv/
+.env
+.git-meta/
+.DS_Store
+
+# Generated experiment products; raw ECH2O data is always external.
+artifacts/**
+!artifacts/.gitkeep
+
+# Local datasets and large raster/NetCDF products.
+/data/
+*.tif
+*.tiff
+*.nc
+*.npz
+*.pt
+*.ckpt

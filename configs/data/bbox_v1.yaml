@@ -1,0 +1,36 @@
+# Canonical source contract for the refreshed rectangular ECH2O bbox dataset.
+data_root: /mnt/alpheus1/zholden/ech2o_projects/ech2o_ai
+crs: EPSG:5070
+calendar:
+  filename_year_semantics: water_year_end
+  fallback_start: "previous_year-10-01"
+  netcdf_time_policy: reject_unusable_time_coordinate_and_use_filename_contract
+target_support:
+  policy: exact_one_cell_inset_of_forcing_bbox
+  crop: [1, 1, -1, -1]
+dynamic_channels: [prcp, srad, tmin, tmax, rmin, rmax]
+static_channels:
+  - vcf
+  - theta_r
+  - BClambda
+  - poros
+  - psi_ae
+  - dem
+  - keff
+  - lai
+  - twi
+  - fac
+  - tpi
+  - psst
+  - wbdef
+target_channels: [soilmoisture, tskin_am, tskin_pm, plc_am, plc_pm]
+target_plausibility_mask:
+  soilmoisture: [0.0, 1.0]
+  tskin_am: [-10.0, 70.0]
+  tskin_pm: [-10.0, 70.0]
+  plc_am: [0.0, 100.0]
+  plc_pm: [0.0, 100.0]
+daily_screen:
+  reject_target_day_when_any_plausibility_violation: true
+  reject_sequence_when_any_forcing_step_has_invalid_target_support: true
+  artifact_heuristic: report_only

@@ -1,0 +1,7 @@
+numpy
+scipy
+rasterio
+xarray
+h5netcdf
+torch
+matplotlib
