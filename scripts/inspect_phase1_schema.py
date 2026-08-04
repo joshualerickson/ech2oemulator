@@ -21,6 +21,10 @@ from typing import Any
 
 import rasterio
 
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.data.paths import configured_data_root
+
 
 DYNAMIC_CHANNELS = ("prcp", "srad", "tmin", "tmax", "rmin", "rmax")
 TARGET_CHANNELS = ("soilmoisture", "tskin_am", "tskin_pm", "plc_am", "plc_pm")
@@ -206,12 +210,14 @@ def build_report(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--data-root", type=Path, default=configured_data_root(), help="Raw input root; defaults to ECH2O_DATA_ROOT.")
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--full-target-nodata-scan", action="store_true")
     parser.add_argument("--site-limit", type=int)
     parser.add_argument("--site-offset", type=int, default=0)
     args = parser.parse_args()
+    if args.data_root is None:
+        parser.error("set ECH2O_DATA_ROOT or pass --data-root")
     report = build_report(
         args.data_root,
         args.full_target_nodata_scan,

@@ -30,7 +30,16 @@ export ECH2O_PSST_PATH=/path/to/psst.tif
 export ECH2O_WBDEF_PATH=/path/to/wbdef.tif
 ```
 
+Set the raw ECH2O root once as well:
+
+```bash
+export ECH2O_DATA_ROOT=/path/to/ech2o_ai
+```
+
 Copy `.env.example` as a local reference if useful; `.env` is never committed.
+Every data-building script accepts this explicit path as
+`--data-root "$ECH2O_DATA_ROOT"`, which prevents any hidden machine-specific
+path from entering an experiment.
 
 ## Data contract
 
@@ -39,7 +48,10 @@ new data copy. The critical date rule is that a file named `SITE-YYYY` begins
 on **October 1 of YYYY-1**, not January 1. Static ASCII rasters are interpreted
 as EPSG:5070 and must satisfy the documented one-cell inset relationship.
 
-Raw data root example:
+The complete expected directory structure is in
+[the input-folder schema](docs/input_folder_schema.md) and
+[`configs/data/input_layout_v1.yaml`](configs/data/input_layout_v1.yaml).
+At minimum, the raw data root looks like:
 
 ```text
 /path/to/ech2o_ai/SITE_ID/
@@ -50,14 +62,13 @@ Raw data root example:
 
 ## Minimal workflow
 
-All commands run from the repository root. Replace `/path/to/ech2o_ai` with
-the raw data root on the current machine.
+All commands run from the repository root.
 
 1. Inspect the data and produce the schema report.
 
    ```bash
    python scripts/inspect_phase1_schema.py \
-     --data-root /path/to/ech2o_ai \
+     --data-root "$ECH2O_DATA_ROOT" \
      --output artifacts/schema_reports/phase1_schema.json
    ```
 
@@ -67,7 +78,7 @@ the raw data root on the current machine.
    ```bash
    python scripts/build_full_spatial_split.py \
      --daily-dir artifacts/manifests/phase2_daily \
-     --data-root /path/to/ech2o_ai \
+     --data-root "$ECH2O_DATA_ROOT" \
      --external-manifest artifacts/manifests/external_panel_v1/manifest.csv \
      --output-dir artifacts/manifests/full75_val25_jun_sep_v1
    ```

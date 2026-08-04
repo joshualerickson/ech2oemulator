@@ -1,5 +1,9 @@
 # Canonical source contract for the refreshed rectangular ECH2O bbox dataset.
-data_root: /mnt/alpheus1/zholden/ech2o_projects/ech2o_ai
+# Direct scripts with --data-root "$ECH2O_DATA_ROOT"; never commit a local path.
+data_root:
+  environment_variable: ECH2O_DATA_ROOT
+  cli_argument: --data-root
+  example: /path/to/ech2o_ai
 crs: EPSG:5070
 calendar:
   filename_year_semantics: water_year_end

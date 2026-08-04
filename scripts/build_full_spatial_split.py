@@ -20,6 +20,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.data.static_contract import EXTERNAL_STATIC_SOURCES, Grid, read_ascii_on_target_grid, resolve_ascii_static
+from src.data.paths import configured_data_root
 
 
 MANIFEST_FIELDS = (
@@ -182,7 +183,7 @@ def read_covariate_cache(path: Path) -> dict[str, dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daily-dir", type=Path, required=True)
-    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--data-root", type=Path, default=configured_data_root(), help="Raw input root; defaults to ECH2O_DATA_ROOT.")
     parser.add_argument("--external-manifest", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--validation-fraction", type=float, default=0.25)
@@ -191,6 +192,8 @@ def main() -> None:
     parser.add_argument("--strata-bins", type=int, default=4)
     parser.add_argument("--seed", type=int, default=20260803)
     args = parser.parse_args()
+    if args.data_root is None:
+        parser.error("set ECH2O_DATA_ROOT or pass --data-root")
     if not 0 < args.validation_fraction < 1:
         parser.error("--validation-fraction must be between zero and one")
 

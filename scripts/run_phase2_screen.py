@@ -5,6 +5,7 @@ import argparse, csv, json, sys
 from pathlib import Path
 if __package__ in {None, ""}: sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from src.data.phase2_qc import iter_daily_screen_rows
+from src.data.paths import configured_data_root
 
 def write(path: Path, rows: list[dict[str, object]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -13,11 +14,13 @@ def write(path: Path, rows: list[dict[str, object]]) -> None:
 
 def main() -> None:
     p=argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--schema-report",type=Path,required=True); p.add_argument("--data-root",type=Path,required=True)
+    p.add_argument("--schema-report",type=Path,required=True); p.add_argument("--data-root",type=Path,default=configured_data_root(),help="Raw input root; defaults to ECH2O_DATA_ROOT.")
     p.add_argument("--output-dir",type=Path,required=True); p.add_argument("--site-offset",type=int,default=0); p.add_argument("--site-limit",type=int)
     p.add_argument("--max-cell-days",type=int,default=800000,help="Maximum H*W*days per read; lower for constrained hosts.")
     p.add_argument("--overwrite",action="store_true")
-    a=p.parse_args(); schema=json.loads(a.schema_report.read_text())
+    a=p.parse_args()
+    if a.data_root is None: p.error("set ECH2O_DATA_ROOT or pass --data-root")
+    schema=json.loads(a.schema_report.read_text())
     sites=[s for s in schema['sites'] if not s['issues']][a.site_offset:]
     if a.site_limit is not None: sites=sites[:a.site_limit]
     for n,s in enumerate(sites,1):

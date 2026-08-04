@@ -1,0 +1,31 @@
+# Portable on-disk input schema. Paths are relative to --data-root.
+schema_version: 1
+data_root: /path/to/ech2o_ai
+site_directory: "{site_id}/"
+site_id: "Two-letter state prefix followed by the source site identifier."
+water_year:
+  filename_year: YYYY
+  first_day: "(YYYY - 1)-10-01"
+  note: "Never interpret raster band 0 as January 1."
+required_per_site:
+  dynamic_forcing:
+    path_pattern: "{channel}_{water_year_end}.tif"
+    channels: [prcp, srad, tmin, tmax, rmin, rmax]
+    expected_grid: "One-cell perimeter around target support; crop [1:-1, 1:-1]."
+  target:
+    path_pattern: "{site_id}-{water_year_end}_subdaily.nc"
+    variables: [soilmoisture, tskin_am, tskin_pm, plc_am, plc_pm]
+    expected_crs: EPSG:5070
+  site_static_ascii:
+    directory: Spatial
+    required_selected_channels: [vcf, theta_r, BClambda, poros, psi_ae, dem, ksat, lai]
+    expected_grid: "One-cell perimeter around target support; ASCII CRS inherited as EPSG:5070."
+regional_static_paths:
+  ECH2O_TWI_PATH: "CONUS TWI raster"
+  ECH2O_FAC_PATH: "flow accumulation raster/VRT"
+  ECH2O_PSST_PATH: "PSST raster"
+  ECH2O_WBDEF_PATH: "climatic water deficit raster"
+derived_static_channels: [tpi]
+output_policy:
+  generated_artifacts_directory: artifacts
+  git_policy: "Ignore all generated manifests, metrics, predictions, and checkpoints."
