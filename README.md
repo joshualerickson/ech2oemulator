@@ -101,6 +101,49 @@ All commands run from the repository root.
 The best checkpoint is selected strictly by the site-disjoint validation loss;
 the external panel is reserved for final testing and GeoTIFF export.
 
+## CPU batching and throughput
+
+The model is CPU-oriented and each sample remains a complete site bbox:
+
+```text
+[batch, 30 days, 6 forcing channels, height, width]
+```
+
+Batching does **not** crop spatial patches, shorten the 30-day sequence, mix
+hidden states across samples, or change the sites/dates seen in an epoch. A
+recurrent state is independently reset for every sequence. One epoch always
+visits every manifest row exactly once.
+
+With `--batch-size N` greater than one, the loader groups shuffled target dates
+from the same site into a batch. That uses their common bbox dimensions to
+avoid padding small and large sites together. It is an execution optimization:
+the CPU processes several complete sequences concurrently using more RAM.
+
+The tradeoff is optimizer behavior, not coverage. For `S` training sequences,
+an epoch has approximately `S / N` gradient updates rather than `S` singleton
+updates. Compare candidate batch sizes by validation loss, not by epoch number
+alone.
+
+Before a full run, measure real hardware throughput without writing a
+checkpoint:
+
+```bash
+python scripts/train_dev_cpu.py \
+  --manifest artifacts/manifests/full75_val25_jun_sep_v1/manifest.csv \
+  --normalization artifacts/normalization/full75_val25_jun_sep_v1.json \
+  --checkpoint /tmp/unused.pt \
+  --benchmark-batches 8 \
+  --batch-size 1 \
+  --threads 32 \
+  --interop-threads 1 \
+  --enforce-physical-bounds
+```
+
+Repeat with `--batch-size 2`, `4`, `8`, or `16` and compare the reported
+`samples_per_second`. Do not assume that all available CPU cores are fastest;
+test a few `--threads` values. Omit `--benchmark-batches` for a full run and
+use the selected `--batch-size`, `--threads`, and `--interop-threads` values.
+
 ## Repository layout
 
 - `src/data`: date, QA, static-grid, manifest, and normalization contracts
