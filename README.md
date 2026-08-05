@@ -131,24 +131,52 @@ python scripts/train_dev_cpu.py \
 true bounded ConvLSTM checkpoint. Checkpoint metadata records
 `recurrent_cell: lstm`; verify this before interpreting a run.
 
-### Stateful water-year ConvLSTM
+### Stateful water-year ConvGRU and ConvLSTM
 
-The separate water-year experiment starts at October 1 and carries the LSTM
-hidden and cell state through the site-year. It resets only at a site/water-year
-boundary. `--full-bptt` keeps the full Oct--Sep graph connected and performs
-one optimizer update per site-year; it is a long-memory diagnostic, not part of
-the fixed-window model-selection grid.
+The water-year experiment starts at October 1 and carries the recurrent state
+through the site-year. It resets only at a site/water-year boundary. For LSTM,
+that state is the hidden state plus cell state; for GRU, it is the hidden state.
+`--full-bptt` keeps the full Oct--Sep graph connected and performs one optimizer
+update per site-year. Without it, the state is still carried forward but its
+gradient is detached at each `--chunk-days` boundary (stateful TBPTT).
+
+| Temporal protocol | ConvGRU | ConvLSTM |
+| --- | --- | --- |
+| Fixed 30 / 60 / 90 days | supported | supported |
+| Stateful Oct--Sep (TBPTT) | supported | supported |
+| Full-year BPTT | supported | supported |
+
+This makes the fair long-memory experiment explicit: use the same water-year
+manifest, normalization, chunk size, seed, loss months, and BPTT mode; vary
+only `--recurrent-cell`.
 
 ```bash
-python scripts/train_water_year_lstm.py \
+python scripts/train_water_year_recurrent.py \
   --manifest artifacts/manifests/lstm10_water_year_v1/manifest.csv \
   --normalization artifacts/normalization/lstm10_water_year_v1.json \
   --checkpoint artifacts/checkpoints/lstm10_water_year_full_bptt_cpu.pt \
-  --epochs 100 --chunk-days 30 --full-bptt --threads 32
+  --epochs 100 --chunk-days 30 --full-bptt --threads 32 \
+  --recurrent-cell lstm
 ```
 
 `--chunk-days` only controls the implementation loop in full-BPTT mode; it
 does not detach the recurrent state or truncate gradients.
+
+Run the matched ConvGRU experiment by changing only the recurrent-cell flag and
+checkpoint name:
+
+```bash
+python scripts/train_water_year_recurrent.py \
+  --manifest artifacts/manifests/lstm10_water_year_v1/manifest.csv \
+  --normalization artifacts/normalization/lstm10_water_year_v1.json \
+  --checkpoint artifacts/checkpoints/gru10_water_year_full_bptt_cpu.pt \
+  --epochs 100 --chunk-days 30 --full-bptt --threads 32 \
+  --recurrent-cell gru
+```
+
+For the stateful-TBPTT comparison, omit `--full-bptt` from both commands. The
+same prediction script replays either checkpoint: model metadata chooses the
+GRU or LSTM cell automatically.
 
 ## Validation diagnostics and homelab site
 
@@ -160,6 +188,7 @@ pixels in fixed elevation, TPI, TWI, and climatic-water-deficit quartiles.
 ```bash
 python scripts/build_model_comparison_html.py ...
 python scripts/build_pixel_strata_html.py ...
+python scripts/build_pixel_joint_heatmap_html.py ...
 python scripts/publish_dashboard_site.py --reports-dir artifacts/reports --site-dir site
 python -m http.server 8080 --directory site
 ```
@@ -168,6 +197,21 @@ The generated `site/` directory is intentionally ignored by Git. It contains
 only the HTML reports selected for the homelab deployment; source data,
 checkpoints, GeoTIFFs, and other artifacts remain private. See
 [homelab deployment notes](docs/homelab_dashboard.md).
+
+### Metric interpretation
+
+All validation metrics compare prediction and ECH2O truth pixel-by-pixel after
+excluding nodata and target-QA-invalid pixels. MAE is the mean absolute pixel
+error; RMSE is the square root of mean squared pixel error; and bias is mean
+prediction minus observation. Correlation, R-squared, and SD ratio are pooled
+pixel-pair statistics. SD ratio is `SD(prediction) / SD(observation)`; values
+below one indicate smoother-than-observed predictions.
+
+Pixel-strata reports group those same pixels by fixed split-wide static
+quantiles. The joint heatmap uses climatic-water-deficit × TPI bins to locate
+terrain–climate regimes where a target fails. These are association diagnostics,
+not causal attribution; always inspect the displayed pixel count and follow up
+with maps or time series for suspicious cells.
 
 ## CPU batching and throughput
 

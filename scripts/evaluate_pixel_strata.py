@@ -28,6 +28,7 @@ from src.models.multitask_model import load_model_state, model_from_checkpoint
 
 
 CONTEXTS = ("dem", "tpi", "twi", "wbdef")
+JOINT_CONTEXTS = (("wbdef", "tpi"),)
 CONTEXT_LABELS = {
     "dem": "Elevation", "tpi": "Topographic position index", "twi": "Topographic wetness index", "wbdef": "Climatic water deficit",
 }
@@ -83,6 +84,24 @@ class Moments:
             "sd_ratio": p_var**0.5 / max(y_var**0.5, 1e-12),
         }
 
+    def merge(self, other: "Moments") -> None:
+        """Combine sufficient statistics without recomputing residual arrays."""
+        self.count += other.count
+        self.abs_error += other.abs_error
+        self.squared_error += other.squared_error
+        self.error += other.error
+        self.prediction += other.prediction
+        self.prediction_sq += other.prediction_sq
+        self.observation += other.observation
+        self.observation_sq += other.observation_sq
+        self.cross += other.cross
+
+
+def contribution(prediction: np.ndarray, observation: np.ndarray) -> Moments:
+    result = Moments()
+    result.update(prediction, observation)
+    return result
+
 
 def static_edges(dataset: SequenceDataset, bins: int, sample_per_site: int) -> dict[str, np.ndarray]:
     """Derive deterministic split-wide static quantiles without target values."""
@@ -135,6 +154,10 @@ def main() -> None:
     by_month: dict[tuple[str, str, int, str], Moments] = defaultdict(Moments)
     by_state: dict[tuple[str, str, int, str], Moments] = defaultdict(Moments)
     by_month_state: dict[tuple[str, str, str, int, str], Moments] = defaultdict(Moments)
+    joint: dict[tuple[str, str, int, int, str], Moments] = defaultdict(Moments)
+    joint_by_month: dict[tuple[str, str, str, int, int, str], Moments] = defaultdict(Moments)
+    joint_by_state: dict[tuple[str, str, str, int, int, str], Moments] = defaultdict(Moments)
+    joint_by_month_state: dict[tuple[str, str, str, str, int, int, str], Moments] = defaultdict(Moments)
     seen_months: set[str] = set()
     seen_states: set[str] = set()
     seen_month_states: set[tuple[str, str]] = set()
@@ -153,19 +176,36 @@ def main() -> None:
                 seen_months.add(month)
                 seen_states.add(site_state)
                 seen_month_states.add((month, site_state))
+                context_bins = {
+                    context: np.digitize(raw_static[item, context_index[context]], edges[context][1:-1], right=False)
+                    for context in CONTEXTS
+                }
                 for context in CONTEXTS:
                     values = raw_static[item, context_index[context]]
-                    bin_id = np.digitize(values, edges[context][1:-1], right=False)
+                    bin_id = context_bins[context]
                     for channel, target in enumerate(TARGET_CHANNELS):
                         usable = valid[item, channel] & np.isfinite(observation[item, channel]) & np.isfinite(values)
                         for index in range(args.bins):
                             mask = usable & (bin_id == index)
                             if mask.any():
-                                p, y = prediction[item, channel][mask], observation[item, channel][mask]
-                                grouped[(context, index, target)].update(p, y)
-                                by_month[(month, context, index, target)].update(p, y)
-                                by_state[(site_state, context, index, target)].update(p, y)
-                                by_month_state[(month, site_state, context, index, target)].update(p, y)
+                                stats_contribution = contribution(prediction[item, channel][mask], observation[item, channel][mask])
+                                grouped[(context, index, target)].merge(stats_contribution)
+                                by_month[(month, context, index, target)].merge(stats_contribution)
+                                by_state[(site_state, context, index, target)].merge(stats_contribution)
+                                by_month_state[(month, site_state, context, index, target)].merge(stats_contribution)
+                for channel, target in enumerate(TARGET_CHANNELS):
+                    for x_context, y_context in JOINT_CONTEXTS:
+                        x_values, y_values = raw_static[item, context_index[x_context]], raw_static[item, context_index[y_context]]
+                        usable = valid[item, channel] & np.isfinite(observation[item, channel]) & np.isfinite(x_values) & np.isfinite(y_values)
+                        for x_bin in range(args.bins):
+                            for y_bin in range(args.bins):
+                                mask = usable & (context_bins[x_context] == x_bin) & (context_bins[y_context] == y_bin)
+                                if mask.any():
+                                    stats_contribution = contribution(prediction[item, channel][mask], observation[item, channel][mask])
+                                    joint[(x_context, y_context, x_bin, y_bin, target)].merge(stats_contribution)
+                                    joint_by_month[(month, x_context, y_context, x_bin, y_bin, target)].merge(stats_contribution)
+                                    joint_by_state[(site_state, x_context, y_context, x_bin, y_bin, target)].merge(stats_contribution)
+                                    joint_by_month_state[(month, site_state, x_context, y_context, x_bin, y_bin, target)].merge(stats_contribution)
 
     def context_payload(source: dict, prefix: tuple[str, ...]) -> dict[str, object]:
         return {
@@ -175,6 +215,22 @@ def main() -> None:
             }
             for context in CONTEXTS
         }
+
+    def joint_payload(source: dict, prefix: tuple[str, ...]) -> dict[str, object]:
+        result: dict[str, object] = {}
+        for x_context, y_context in JOINT_CONTEXTS:
+            name = f"{x_context}_x_{y_context}"
+            result[name] = {
+                "x_context": x_context, "y_context": y_context,
+                "x_label": CONTEXT_LABELS[x_context], "y_label": CONTEXT_LABELS[y_context],
+                "x_edges": [float(value) for value in edges[x_context]],
+                "y_edges": [float(value) for value in edges[y_context]],
+                "cells": {
+                    f"Q{x_bin + 1}_Q{y_bin + 1}": {target: source[prefix + (x_context, y_context, x_bin, y_bin, target)].result() for target in TARGET_CHANNELS}
+                    for y_bin in range(args.bins) for x_bin in range(args.bins)
+                },
+            }
+        return result
     result = {
         "description": "Exact masked pixel metrics, stratified by split-wide static-pixel quantiles with optional month/state grouping.",
         "manifest": str(args.manifest), "checkpoint": str(args.checkpoint), "checkpoint_epoch": state.get("epoch"),
@@ -184,6 +240,13 @@ def main() -> None:
         "by_state": {site_state: {"contexts": context_payload(by_state, (site_state,))} for site_state in sorted(seen_states)},
         "by_month_state": {
             month: {site_state: {"contexts": context_payload(by_month_state, (month, site_state))} for m, site_state in sorted(seen_month_states) if m == month}
+            for month in sorted(seen_months)
+        },
+        "joint_contexts": joint_payload(joint, ()),
+        "joint_by_month": {month: {"joint_contexts": joint_payload(joint_by_month, (month,))} for month in sorted(seen_months)},
+        "joint_by_state": {site_state: {"joint_contexts": joint_payload(joint_by_state, (site_state,))} for site_state in sorted(seen_states)},
+        "joint_by_month_state": {
+            month: {site_state: {"joint_contexts": joint_payload(joint_by_month_state, (month, site_state))} for m, site_state in sorted(seen_month_states) if m == month}
             for month in sorted(seen_months)
         },
     }

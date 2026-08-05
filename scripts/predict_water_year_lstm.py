@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay an Oct--Sep stateful LSTM and export GIS-ready daily predictions."""
+"""Replay an Oct--Sep stateful ConvGRU or ConvLSTM and export GIS-ready predictions."""
 from __future__ import annotations
 import argparse,json,sys
 from pathlib import Path
@@ -20,7 +20,7 @@ def write(path,values,source,nodata=-9999.):
 def main():
  p=argparse.ArgumentParser();p.add_argument('--manifest',type=Path,required=True);p.add_argument('--checkpoint',type=Path,required=True);p.add_argument('--normalization',type=Path,required=True);p.add_argument('--site-id',required=True);p.add_argument('--month',type=int,default=8);p.add_argument('--max-days',type=int,default=1);p.add_argument('--chunk-days',type=int,default=30);p.add_argument('--output-dir',type=Path,required=True);a=p.parse_args();stats=json.loads(a.normalization.read_text())['groups'];ds=WaterYearDataset(a.manifest,'dev_spatial_test');s=next(x for x in ds if x['site_id']==a.site_id);state=torch.load(a.checkpoint,map_location='cpu',weights_only=False);m=model_from_checkpoint(state);load_model_state(m,state);m.eval();x=standardize(torch.nan_to_num(s['dynamic']).unsqueeze(0),stats['dynamic'],DYNAMIC_CHANNELS,2);z=standardize(torch.nan_to_num(s['static']).unsqueeze(0),stats['static'],STATIC_CHANNELS,1);parts=[];hidden=None
  with torch.no_grad():
-  for start in range(0,x.shape[1],a.chunk_days):q,hidden=m.forward_lstm_chunks(x[:,start:start+a.chunk_days],z,hidden);parts.append(q)
+  for start in range(0,x.shape[1],a.chunk_days):q,hidden=m.forward_stateful_chunks(x[:,start:start+a.chunk_days],z,hidden);parts.append(q)
  pred=inverse(torch.cat(parts,1),stats['target'])[0].numpy();obs=s['target'].numpy();valid=s['valid'].numpy();a.output_dir.mkdir(parents=True,exist_ok=True);written=0
  for i,day in enumerate(s['dates']):
   if int(day[5:7])!=a.month:continue

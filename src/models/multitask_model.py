@@ -30,12 +30,17 @@ class ConvGRUMultitask(nn.Module):
         features=self.trunk(self.stem(torch.cat((hidden,current,static),1))); raw=torch.cat([head(features) for head in self.heads],1)
         bounded=self.output_lower+(self.output_upper-self.output_lower)*torch.sigmoid(raw)
         return torch.where(self.bounded_outputs,bounded,raw)
-    def forward_lstm_chunks(self,sequence:torch.Tensor,static:torch.Tensor,state:tuple[torch.Tensor,torch.Tensor]|None=None)->tuple[torch.Tensor,tuple[torch.Tensor,torch.Tensor]]:
-        """Decode every LSTM step while carrying state across chronological chunks."""
-        if self.recurrent_cell!='lstm': raise ValueError('Stateful chunks require recurrent_cell=lstm')
+    def forward_stateful_chunks(self,sequence:torch.Tensor,static:torch.Tensor,state:torch.Tensor|tuple[torch.Tensor,torch.Tensor]|None=None)->tuple[torch.Tensor,torch.Tensor|tuple[torch.Tensor,torch.Tensor]]:
+        """Decode every step while preserving ConvGRU or ConvLSTM state across chunks."""
         hidden_steps,next_state=self.encoder.forward_stateful(sequence,state,return_sequence=True)
         predictions=[self.decode(hidden_steps[:,step],sequence[:,step],static) for step in range(sequence.shape[1])]
         return torch.stack(predictions,1),next_state
+
+    def forward_lstm_chunks(self,sequence:torch.Tensor,static:torch.Tensor,state:tuple[torch.Tensor,torch.Tensor]|None=None)->tuple[torch.Tensor,tuple[torch.Tensor,torch.Tensor]]:
+        """Compatibility alias for older ConvLSTM water-year callers."""
+        if self.recurrent_cell!='lstm': raise ValueError('forward_lstm_chunks requires recurrent_cell=lstm')
+        predictions,next_state=self.forward_stateful_chunks(sequence,static,state)
+        return predictions,next_state
 
 
 def model_from_checkpoint(checkpoint:dict)->ConvGRUMultitask:

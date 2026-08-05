@@ -15,7 +15,26 @@ class ConvGRUCell(nn.Module):
 class ConvGRU(nn.Module):
     def __init__(self,input_channels:int,hidden_channels:int)->None:
         super().__init__(); self.cell=ConvGRUCell(input_channels,hidden_channels); self.hidden_channels=hidden_channels
+    def forward_stateful(
+        self,
+        sequence:torch.Tensor,
+        state:torch.Tensor|None=None,
+        return_sequence:bool=False,
+    )->tuple[torch.Tensor,torch.Tensor]:
+        """Advance a site-specific state across one chronological chunk.
+
+        Callers own the boundary policy: state is reset only at a new
+        site/water-year, never merely because the sequence is chunked.
+        """
+        batch,_,_,height,width=sequence.shape
+        if state is None:
+            state=sequence.new_zeros((batch,self.hidden_channels,height,width))
+        states=[]
+        for step in sequence.unbind(1):
+            state=self.cell(step,state)
+            if return_sequence: states.append(state)
+        output=torch.stack(states,1) if return_sequence else state
+        return output,state
     def forward(self,sequence:torch.Tensor)->torch.Tensor:
-        b,_,_,h,w=sequence.shape; state=sequence.new_zeros((b,self.hidden_channels,h,w))
-        for step in sequence.unbind(1): state=self.cell(step,state)
+        state,_=self.forward_stateful(sequence)
         return state
