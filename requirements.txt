@@ -5,3 +5,4 @@ xarray
 h5netcdf
 torch
 matplotlib
+plotly

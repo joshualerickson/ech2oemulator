@@ -39,7 +39,7 @@ def site_loader(dataset:SequenceDataset,batch_size:int,seed:int,shuffle:bool)->D
 
 
 def main():
- p=argparse.ArgumentParser(); p.add_argument('--manifest',type=Path,required=True); p.add_argument('--normalization',type=Path,required=True); p.add_argument('--checkpoint',type=Path,required=True); p.add_argument('--epochs',type=int,default=5); p.add_argument('--threads',type=int,default=32); p.add_argument('--interop-threads',type=int,default=1); p.add_argument('--batch-size',type=int,default=1,help='>1 batches same-site dates without spatial padding.'); p.add_argument('--benchmark-batches',type=int,default=0,help='Run this many train batches, report throughput, and exit without a checkpoint.'); p.add_argument('--seed',type=int,default=20260803); p.add_argument('--enforce-physical-bounds',action='store_true',help='Constrain soil moisture to [0,1] and PLC to [0,100] in the model head.'); p.add_argument('--validation-split',default=None,help='Optional site-level manifest split, e.g. dev_spatial_val.'); p.add_argument('--validation-every',type=int,default=1); p.add_argument('--validation-max-samples',type=int,default=0,help='0 validates every row of the split.'); p.add_argument('--resume',action='store_true'); a=p.parse_args()
+ p=argparse.ArgumentParser(); p.add_argument('--manifest',type=Path,required=True); p.add_argument('--normalization',type=Path,required=True); p.add_argument('--checkpoint',type=Path,required=True); p.add_argument('--epochs',type=int,default=5); p.add_argument('--threads',type=int,default=32); p.add_argument('--interop-threads',type=int,default=1); p.add_argument('--batch-size',type=int,default=1,help='>1 batches same-site dates without spatial padding.'); p.add_argument('--benchmark-batches',type=int,default=0,help='Run this many train batches, report throughput, and exit without a checkpoint.'); p.add_argument('--recurrent-cell',choices=('gru','lstm'),default='gru',help='Use lstm only for a controlled ConvGRU comparison.'); p.add_argument('--seed',type=int,default=20260803); p.add_argument('--enforce-physical-bounds',action='store_true',help='Constrain soil moisture to [0,1] and PLC to [0,100] in the model head.'); p.add_argument('--validation-split',default=None,help='Optional site-level manifest split, e.g. dev_spatial_val.'); p.add_argument('--validation-every',type=int,default=1); p.add_argument('--validation-max-samples',type=int,default=0,help='0 validates every row of the split.'); p.add_argument('--resume',action='store_true'); a=p.parse_args()
  if a.batch_size<1 or a.interop_threads<1: p.error('--batch-size and --interop-threads must be positive')
  torch.set_num_threads(a.threads); torch.set_num_interop_threads(a.interop_threads); torch.manual_seed(a.seed); stats=json.loads(a.normalization.read_text())['groups']; ds=SequenceDataset(a.manifest,'dev_train',cache_site_arrays=True); loader=site_loader(ds,a.batch_size,a.seed,True)
  val_loader=None
@@ -47,14 +47,17 @@ def main():
   val_ds=SequenceDataset(a.manifest,a.validation_split,cache_site_arrays=True)
   if a.validation_max_samples: val_ds.rows=val_ds.rows[:a.validation_max_samples]
   val_loader=site_loader(val_ds,a.batch_size,a.seed,False)
- model_config={}
+ # Keep the requested recurrent cell when output bounds are also enabled.
+ # Omitting the default GRU key preserves compatibility with earlier GRU
+ # checkpoints when resuming them.
+ model_config={} if a.recurrent_cell=='gru' else {'recurrent_cell':a.recurrent_cell}
  if a.enforce_physical_bounds:
   constrained={'soilmoisture','plc_am','plc_pm'}; lower=[]; upper=[]
   for name in TARGET_CHANNELS:
    if name in constrained:
     raw_lower,raw_upper=TARGET_PLAUSIBILITY_RANGES[name]; mean,std=stats['target'][name]['mean'],stats['target'][name]['std']; lower.append((raw_lower-mean)/std); upper.append((raw_upper-mean)/std)
    else: lower.append(0.0); upper.append(0.0)
-  model_config={'output_lower':lower,'output_upper':upper}
+  model_config.update({'output_lower':lower,'output_upper':upper})
  model=ConvGRUMultitask(**model_config); opt=torch.optim.AdamW(model.parameters(),lr=1e-3); start=0; losses=[]; epoch_metrics=[]; best_validation_loss=float('inf')
  if a.resume and a.checkpoint.exists():
   s=torch.load(a.checkpoint,map_location='cpu',weights_only=False)

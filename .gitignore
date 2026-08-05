@@ -14,6 +14,10 @@ venv/
 artifacts/**
 !artifacts/.gitkeep
 
+# Generated static homelab deployment; source/publish code remains tracked.
+site/**
+!site/.gitkeep
+
 # Local datasets and large raster/NetCDF products.
 /data/
 *.tif

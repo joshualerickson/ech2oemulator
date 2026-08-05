@@ -1,9 +1,9 @@
 # ECH2O Scorched Earth
 
-Reproducible CPU-oriented ConvGRU experiments for daily, full-resolution ECH2O
-bbox outputs. The baseline consumes 30 consecutive daily forcing rasters and
-13 static covariates, then predicts soil moisture, AM/PM skin temperature, and
-AM/PM PLC at the target grid's native resolution.
+Reproducible CPU-oriented ConvGRU and ConvLSTM experiments for daily,
+full-resolution ECH2O bbox outputs. The fixed-window baseline consumes ordered
+daily forcing rasters and 13 static covariates, then predicts soil moisture,
+AM/PM skin temperature, and AM/PM PLC at the target grid's native resolution.
 
 This repository contains code and lightweight configuration only. Raw ECH2O
 rasters, NetCDFs, model checkpoints, QA screens, manifests, predictions, and
@@ -100,6 +100,74 @@ All commands run from the repository root.
 
 The best checkpoint is selected strictly by the site-disjoint validation loss;
 the external panel is reserved for final testing and GeoTIFF export.
+
+## Fixed-window model selection
+
+The next controlled experiment compares 30-, 60-, and 90-day ConvGRU and
+ConvLSTM models on the same persisted 75/25 spatial split.  The exact matrix,
+selection rule, report contents, and commands are documented in
+[the fixed-window model-selection plan](docs/fixed_window_model_selection_plan.md).
+
+### ConvGRU versus ConvLSTM
+
+Use the same manifest, normalization artifact, batch size, validation split,
+and seed for a controlled recurrent-cell comparison. The fixed-window LSTM
+starts with a zero state at the beginning of every independently evaluated
+30/60/90-day sequence; its gates decide which information to retain *within*
+that declared lookback. It must never carry a hidden state between shuffled
+samples or sites.
+
+```bash
+python scripts/train_dev_cpu.py \
+  --manifest artifacts/manifests/full75_val25_jun_sep_v1/manifest.csv \
+  --normalization artifacts/normalization/full75_val25_jun_sep_v1.json \
+  --checkpoint artifacts/checkpoints/full75_val25_lstm_seq30_b16_cpu.pt \
+  --epochs 15 --batch-size 16 --threads 32 --interop-threads 1 \
+  --seed 20260803 --recurrent-cell lstm --enforce-physical-bounds \
+  --validation-split dev_spatial_val
+```
+
+`--recurrent-cell lstm` together with `--enforce-physical-bounds` creates a
+true bounded ConvLSTM checkpoint. Checkpoint metadata records
+`recurrent_cell: lstm`; verify this before interpreting a run.
+
+### Stateful water-year ConvLSTM
+
+The separate water-year experiment starts at October 1 and carries the LSTM
+hidden and cell state through the site-year. It resets only at a site/water-year
+boundary. `--full-bptt` keeps the full Oct--Sep graph connected and performs
+one optimizer update per site-year; it is a long-memory diagnostic, not part of
+the fixed-window model-selection grid.
+
+```bash
+python scripts/train_water_year_lstm.py \
+  --manifest artifacts/manifests/lstm10_water_year_v1/manifest.csv \
+  --normalization artifacts/normalization/lstm10_water_year_v1.json \
+  --checkpoint artifacts/checkpoints/lstm10_water_year_full_bptt_cpu.pt \
+  --epochs 100 --chunk-days 30 --full-bptt --threads 32
+```
+
+`--chunk-days` only controls the implementation loop in full-BPTT mode; it
+does not detach the recurrent state or truncate gradients.
+
+## Validation diagnostics and homelab site
+
+The validation reports are exhaustive across eligible June--September
+site-date rows and valid pixels. The fixed-window dashboard compares model,
+month, state, target, and metric. The separate pixel-strata explorer aggregates
+pixels in fixed elevation, TPI, TWI, and climatic-water-deficit quartiles.
+
+```bash
+python scripts/build_model_comparison_html.py ...
+python scripts/build_pixel_strata_html.py ...
+python scripts/publish_dashboard_site.py --reports-dir artifacts/reports --site-dir site
+python -m http.server 8080 --directory site
+```
+
+The generated `site/` directory is intentionally ignored by Git. It contains
+only the HTML reports selected for the homelab deployment; source data,
+checkpoints, GeoTIFFs, and other artifacts remain private. See
+[homelab deployment notes](docs/homelab_dashboard.md).
 
 ## CPU batching and throughput
 
