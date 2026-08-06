@@ -1,6 +1,6 @@
 # ECH2O Scorched Earth
 
-Reproducible CPU-oriented ConvGRU and ConvLSTM experiments for daily,
+Reproducible CPU- and CUDA-capable ConvGRU and ConvLSTM experiments for daily,
 full-resolution ECH2O bbox outputs. The fixed-window baseline consumes ordered
 daily forcing rasters and 13 static covariates, then predicts soil moisture,
 AM/PM skin temperature, and AM/PM PLC at the target grid's native resolution.
@@ -101,6 +101,38 @@ All commands run from the repository root.
 The best checkpoint is selected strictly by the site-disjoint validation loss;
 the external panel is reserved for final testing and GeoTIFF export.
 
+### CPU or GPU runtime
+
+All main training commands accept `--device auto|cpu|cuda|cuda:N`. `auto` is
+the default: it selects the first visible NVIDIA GPU when the installed PyTorch
+build has CUDA support, otherwise it runs on CPU exactly as before. The script
+name `train_dev_cpu.py` is retained for command-line compatibility; it is not
+CPU-only. Training checkpoints are portable between CPU and CUDA machines.
+
+For a GPU run, use the same reproducible manifest and normalization artifact,
+but increase batch size only after a short benchmark confirms it fits GPU
+memory. `--threads` still controls CPU-side raster preparation, not GPU work.
+
+```bash
+python scripts/train_dev_cpu.py \
+  --manifest artifacts/manifests/full75_val25_jun_sep_v1/manifest.csv \
+  --normalization artifacts/normalization/full75_val25_jun_sep_v1.json \
+  --checkpoint artifacts/checkpoints/full75_val25_lstm_seq90_gpu.pt \
+  --epochs 15 --batch-size 16 --threads 8 --interop-threads 1 \
+  --device cuda --recurrent-cell lstm --enforce-physical-bounds \
+  --validation-split dev_spatial_val
+```
+
+Verify the installed environment before a large run:
+
+```bash
+python -c "import torch; print(torch.__version__, torch.cuda.is_available(), torch.cuda.get_device_name(0) if torch.cuda.is_available() else 'no CUDA GPU')"
+```
+
+If this reports `False`, install a CUDA-enabled PyTorch build appropriate for
+the target machine; the CPU-only environment on Odin will correctly remain on
+CPU. The water-year trainer supports the identical `--device cuda` option.
+
 ## Fixed-window model selection
 
 The next controlled experiment compares 30-, 60-, and 90-day ConvGRU and
@@ -179,6 +211,24 @@ python scripts/train_water_year_recurrent.py \
 For the stateful-TBPTT comparison, omit `--full-bptt` from both commands. The
 same prediction script replays either checkpoint: model metadata chooses the
 GRU or LSTM cell automatically.
+
+#### Continuing a water-year run
+
+Use `--resume-from` with the prior best checkpoint and a new destination path.
+`--epochs` means additional epochs in this mode. Current historical checkpoints
+contain model weights but not AdamW state, so their first continuation is a
+weight warm-start with a fresh optimizer; continuation checkpoints written by
+the current trainer save AdamW state and can subsequently resume exactly.
+
+```bash
+python scripts/train_water_year_recurrent.py \
+  --manifest artifacts/manifests/full75_val25_water_year_v1/manifest.csv \
+  --normalization artifacts/normalization/full75_val25_water_year_v1.json \
+  --resume-from artifacts/checkpoints/full75_val25_gru_water_year_full_bptt_cpu_best.pt \
+  --checkpoint artifacts/checkpoints/full75_val25_gru_water_year_full_bptt_e30_cpu.pt \
+  --epochs 15 --learning-rate 2e-4 --chunk-days 0 --full-bptt \
+  --recurrent-cell gru --threads 32
+```
 
 ## Validation diagnostics and homelab site
 

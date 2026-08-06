@@ -8,7 +8,7 @@ from pathlib import Path
 
 
 REPORTS = (
-    ("Fixed-window model comparison", "fixed_window_model_comparison.html"),
+    ("Recurrent model comparison", "fixed_window_model_comparison.html"),
     ("Pixel terrain and climate strata", "pixel_strata_explorer.html"),
     ("Joint climatic-deficit × TPI heatmap", "pixel_joint_heatmap.html"),
 )

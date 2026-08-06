@@ -52,6 +52,26 @@ function render(){const month=document.querySelector('#month').value,state=state
 document.querySelectorAll('select').forEach(x=>x.addEventListener('change',render));addEventListener('resize',render);render();</script></body></html>"""
     template = template.replace("ECH2O fixed-window recurrent model comparison", "ECH2O recurrent model comparison")
     template = template.replace(
+        "</style></head>",
+        ".nav{display:flex;gap:10px;flex-wrap:wrap;padding:12px 0 22px;border-bottom:1px solid #d7dee5;margin-bottom:26px}.nav a{color:#17212b;text-decoration:none;padding:7px 11px;border-radius:999px;background:#edf2f7;font-weight:650}.nav a.active,.nav a:hover{background:#1769aa;color:#fff}.best{font-weight:800;background:#e8f5ee!important;color:#0b5d3b}</style></head>",
+    )
+    template = template.replace(
+        "<body><h1>",
+        "<body><nav class=\"nav\"><a href=\"index.html\">Overview</a><a class=\"active\" href=\"fixed_window_model_comparison.html\">Model comparison</a><a href=\"pixel_strata_explorer.html\">Terrain & climate strata</a><a href=\"pixel_joint_heatmap.html\">Deficit × TPI</a></nav><h1>",
+    )
+    template = template.replace(
+        "function render(){const month=",
+        "function better(metric,a,b){if(!Number.isFinite(a))return false;if(!Number.isFinite(b))return true;if(['correlation','r2'].includes(metric))return a>b;if(metric==='sd_ratio')return Math.abs(a-1)<Math.abs(b-1);if(metric==='bias')return Math.abs(a)<Math.abs(b);return a<b}function render(){const month=",
+    )
+    template = template.replace(
+        "context=contextSelect.value;let text='<table>",
+        "context=contextSelect.value;const winners={};for(const t of targets){let winner=null,best=null;for(const label of labels){const value=valueFor(reports[label],month,state,t)?.[metric];if(better(metric,value,best)){winner=label;best=value}}winners[t]=winner}let text='<table>",
+    )
+    template = template.replace(
+        "let shown='—';if(x&&x[metric]!==undefined)shown=Number(x[metric]).toFixed(['mae','rmse','bias'].includes(metric)?4:3);text+='<td>'+shown+'</td>'",
+        "let shown='—';if(x&&x[metric]!==undefined)shown=Number(x[metric]).toFixed(['mae','rmse','bias'].includes(metric)?4:3);const winner=label===winners[t]&&shown!=='—';text+='<td'+(winner?' class=\"best\"':'')+'>'+shown+'</td>'",
+    )
+    template = template.replace(
         "Pixel-weighted spatial-validation metrics. Select a month and state to compare identical targets across completed models. Pending models are intentionally blank rather than inferred.",
         "Pixel-weighted spatial-validation metrics. Fixed-window reports use the full 75/25 split; full-water-year BPTT reports use its continuity-valid 290-train / 97-validation subset. Select a month and state to compare targets within a common protocol.",
     )

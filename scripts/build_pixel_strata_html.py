@@ -39,6 +39,18 @@ def main() -> None:
         "const c=contexts[context.value],names=Object.keys(c.bins),values=",
         "const c=contexts[context.value],names=Object.keys(c.bins).filter(n=>c.bins[n][target.value].count>0),values=",
     )
+    template = template.replace(
+        "</style></head>",
+        ".nav{display:flex;gap:10px;flex-wrap:wrap;padding:0 0 22px;border-bottom:1px solid #d7dee5;margin-bottom:26px}.nav a{color:#17212b;text-decoration:none;padding:7px 11px;border-radius:999px;background:#edf2f7;font-weight:650}.nav a.active,.nav a:hover{background:#1769aa;color:#fff}</style></head>",
+    )
+    template = template.replace(
+        "<body><h1>",
+        "<body><nav class=\"nav\"><a href=\"index.html\">Overview</a><a href=\"fixed_window_model_comparison.html\">Model comparison</a><a class=\"active\" href=\"pixel_strata_explorer.html\">Terrain & climate strata</a><a href=\"pixel_joint_heatmap.html\">Deficit × TPI</a></nav><h1>",
+    )
+    template = template.replace(
+        "</p><div class=\"controls\">",
+        "</p><p class=\"note\"><strong>Current model coverage:</strong> this explorer currently contains LSTM / 30 days only. Other model summaries are available on the model-comparison page; adding all-model pixel strata requires separate exhaustive pixel-level evaluations.</p><div class=\"controls\">",
+    )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(template.replace("__PLOTLY_JS__", plotly_js).replace("__PAYLOAD__", payload))
     print(args.output)

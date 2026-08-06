@@ -7,6 +7,6 @@
 <h2>Protocols represented</h2><table><tr><th>Protocol</th><th>Models</th></tr><tr><td>Fixed 30, 60, or 90-day lookback</td><td>ConvGRU and ConvLSTM</td></tr><tr><td>Stateful Oct.–Sep. full BPTT</td><td>ConvGRU and ConvLSTM</td></tr></table>
 <div class="note"><strong>Interpretation note.</strong> Fixed-window reports use the full persisted 75/25 spatial split. Full-water-year BPTT reports use the continuity-valid subset (290 training and 97 validation sites), so compare models most directly within the same temporal protocol and cohort.</div>
 <h2>Current reading</h2><p>In the current fixed-window grid, the 90-day ConvLSTM is the strongest overall result. The full-water-year BPTT experiments are retained as an explicit long-memory diagnostic rather than treated as a direct winner over the fixed-window cohort.</p>
-<h2>Interactive reports</h2><ul><li><a href="fixed_window_model_comparison.html">Fixed-window model comparison</a></li>
+<h2>Interactive reports</h2><ul><li><a href="fixed_window_model_comparison.html">Recurrent model comparison</a></li>
 <li><a href="pixel_strata_explorer.html">Pixel terrain and climate strata</a></li>
 <li><a href="pixel_joint_heatmap.html">Joint climatic-deficit × TPI heatmap</a></li></ul><p class="muted">Source code, model protocol, and reproducibility documentation are maintained in the accompanying GitHub repository.</p></html>
