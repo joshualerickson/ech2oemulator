@@ -26,7 +26,7 @@ def prepare_site(s,stats):
 
 def site_loss_tbptt(model,s,stats,chunk,optim=None):
  """Thirty-day TBPTT baseline: detach state and update after each scored chunk."""
- x,z,y,valid,days=prepare_site(s,stats);state=None;losses=[]
+ x,z,y,valid,days=prepare_site(s,stats);chunk=x.shape[1] if chunk==0 else chunk;state=None;losses=[]
  for start in range(0,x.shape[1],chunk):
   end=min(x.shape[1],start+chunk);pred,state=model.forward_stateful_chunks(x[:,start:end],z,state);mask=valid[:,start:end]&days[start:end].view(1,-1,1,1,1)
   if mask.any():
@@ -41,7 +41,7 @@ def site_loss_full_bptt(model,s,stats,chunk,optim=None):
  Chunks only limit the Python-side decoding loop; their recurrent states remain
  connected.  One optimizer step is made only after the complete site-year.
  """
- x,z,y,valid,days=prepare_site(s,stats);state=None;loss_sum=None;count=0
+ x,z,y,valid,days=prepare_site(s,stats);chunk=x.shape[1] if chunk==0 else chunk;state=None;loss_sum=None;count=0
  for start in range(0,x.shape[1],chunk):
   end=min(x.shape[1],start+chunk);pred,state=model.forward_stateful_chunks(x[:,start:end],z,state);mask=valid[:,start:end]&days[start:end].view(1,-1,1,1,1);mask=mask & torch.isfinite(y[:,start:end])
   if mask.any():
@@ -53,11 +53,11 @@ def site_loss_full_bptt(model,s,stats,chunk,optim=None):
   optim.zero_grad();loss.backward();optim.step()
  return float(loss.detach())
 def main():
- p=argparse.ArgumentParser();p.add_argument('--manifest',type=Path,required=True);p.add_argument('--normalization',type=Path,required=True);p.add_argument('--checkpoint',type=Path,required=True);p.add_argument('--epochs',type=int,default=15);p.add_argument('--chunk-days',type=int,default=30);p.add_argument('--full-bptt',action='store_true',help='Keep the Oct--Sep graph connected; one update per site-year.');p.add_argument('--recurrent-cell',choices=('gru','lstm'),default='lstm',help='Use gru for the water-year ConvGRU comparison.');p.add_argument('--threads',type=int,default=32);p.add_argument('--seed',type=int,default=20260804);a=p.parse_args();torch.set_num_threads(a.threads);torch.set_num_interop_threads(1);torch.manual_seed(a.seed);stats=json.loads(a.normalization.read_text())['groups'];train=WaterYearDataset(a.manifest,'dev_train');val=WaterYearDataset(a.manifest,'dev_spatial_val');config=model_config(stats,a.recurrent_cell);model=ConvGRUMultitask(**config);opt=torch.optim.AdamW(model.parameters(),lr=1e-3);best=float('inf');loss_fn=site_loss_full_bptt if a.full_bptt else site_loss_tbptt
+ p=argparse.ArgumentParser();p.add_argument('--manifest',type=Path,required=True);p.add_argument('--normalization',type=Path,required=True);p.add_argument('--checkpoint',type=Path,required=True);p.add_argument('--epochs',type=int,default=15);p.add_argument('--chunk-days',type=int,default=30,help='Days decoded per loop; use 0 for one unchunked Oct--Sep forward/backward pass.');p.add_argument('--full-bptt',action='store_true',help='Keep the Oct--Sep graph connected; one update per site-year.');p.add_argument('--recurrent-cell',choices=('gru','lstm'),default='lstm',help='Use gru for the water-year ConvGRU comparison.');p.add_argument('--threads',type=int,default=32);p.add_argument('--seed',type=int,default=20260804);a=p.parse_args();torch.set_num_threads(a.threads);torch.set_num_interop_threads(1);torch.manual_seed(a.seed);stats=json.loads(a.normalization.read_text())['groups'];train=WaterYearDataset(a.manifest,'dev_train');val=WaterYearDataset(a.manifest,'dev_spatial_val');config=model_config(stats,a.recurrent_cell);model=ConvGRUMultitask(**config);opt=torch.optim.AdamW(model.parameters(),lr=1e-3);best=float('inf');loss_fn=site_loss_full_bptt if a.full_bptt else site_loss_tbptt
  for epoch in range(1,a.epochs+1):
   started=time.perf_counter();model.train();tl=[loss_fn(model,s,stats,a.chunk_days,opt) for s in train];model.eval()
   with torch.no_grad():vl=[loss_fn(model,s,stats,a.chunk_days) for s in val]
-  metric={'epoch':epoch,'train_mean_loss':sum(tl)/len(tl),'validation_mean_loss':sum(vl)/len(vl),'epoch_seconds':time.perf_counter()-started};payload={'model_state':model.state_dict(),'epoch':epoch,'model_config':config,'normalization':str(a.normalization),'stateful_protocol':{'start':'water_year_october_1','chunk_days':a.chunk_days,'loss_months':[6,7,8,9],'backpropagation':'full_october_to_september' if a.full_bptt else 'truncated_at_chunk_boundaries'},'metrics':metric};a.checkpoint.parent.mkdir(parents=True,exist_ok=True);torch.save(payload,a.checkpoint)
+  metric={'epoch':epoch,'train_mean_loss':sum(tl)/len(tl),'validation_mean_loss':sum(vl)/len(vl),'epoch_seconds':time.perf_counter()-started};payload={'model_state':model.state_dict(),'epoch':epoch,'model_config':config,'normalization':str(a.normalization),'stateful_protocol':{'start':'water_year_october_1','chunk_days':a.chunk_days,'sequence_execution':'single_full_water_year_pass' if a.chunk_days==0 else 'chronological_chunks','loss_months':[6,7,8,9],'backpropagation':'full_october_to_september' if a.full_bptt else 'truncated_at_chunk_boundaries'},'metrics':metric};a.checkpoint.parent.mkdir(parents=True,exist_ok=True);torch.save(payload,a.checkpoint)
   if metric['validation_mean_loss']<best:best=metric['validation_mean_loss'];torch.save(payload,a.checkpoint.with_name(a.checkpoint.stem+'_best'+a.checkpoint.suffix))
   print(metric,flush=True)
 if __name__=='__main__':main()

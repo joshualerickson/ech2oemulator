@@ -155,12 +155,14 @@ python scripts/train_water_year_recurrent.py \
   --manifest artifacts/manifests/lstm10_water_year_v1/manifest.csv \
   --normalization artifacts/normalization/lstm10_water_year_v1.json \
   --checkpoint artifacts/checkpoints/lstm10_water_year_full_bptt_cpu.pt \
-  --epochs 100 --chunk-days 30 --full-bptt --threads 32 \
+  --epochs 100 --chunk-days 0 --full-bptt --threads 32 \
   --recurrent-cell lstm
 ```
 
-`--chunk-days` only controls the implementation loop in full-BPTT mode; it
-does not detach the recurrent state or truncate gradients.
+`--chunk-days 0` is the strictest full-BPTT protocol: one unchunked Oct--Sep
+forward/backward pass per site-year. A positive `--chunk-days` only controls
+the implementation loop in full-BPTT mode; it does not detach the recurrent
+state or truncate gradients.
 
 Run the matched ConvGRU experiment by changing only the recurrent-cell flag and
 checkpoint name:
@@ -170,7 +172,7 @@ python scripts/train_water_year_recurrent.py \
   --manifest artifacts/manifests/lstm10_water_year_v1/manifest.csv \
   --normalization artifacts/normalization/lstm10_water_year_v1.json \
   --checkpoint artifacts/checkpoints/gru10_water_year_full_bptt_cpu.pt \
-  --epochs 100 --chunk-days 30 --full-bptt --threads 32 \
+  --epochs 100 --chunk-days 0 --full-bptt --threads 32 \
   --recurrent-cell gru
 ```
 
