@@ -220,6 +220,13 @@ contain model weights but not AdamW state, so their first continuation is a
 weight warm-start with a fresh optimizer; continuation checkpoints written by
 the current trainer save AdamW state and can subsequently resume exactly.
 
+Use validation—not training—loss for stopping. Training loss can continue to
+decline while performance on site-disjoint validation sites has stopped
+improving. `--early-stopping-patience` caps a run after that many consecutive
+validation epochs fail to improve by at least `--min-delta`; `0` (the default)
+disables the cap. The best checkpoint is always retained independently of the
+last checkpoint.
+
 ```bash
 python scripts/train_water_year_recurrent.py \
   --manifest artifacts/manifests/full75_val25_water_year_v1/manifest.csv \
@@ -227,7 +234,8 @@ python scripts/train_water_year_recurrent.py \
   --resume-from artifacts/checkpoints/full75_val25_gru_water_year_full_bptt_cpu_best.pt \
   --checkpoint artifacts/checkpoints/full75_val25_gru_water_year_full_bptt_e30_cpu.pt \
   --epochs 15 --learning-rate 2e-4 --chunk-days 0 --full-bptt \
-  --recurrent-cell gru --threads 32
+  --recurrent-cell gru --threads 32 \
+  --early-stopping-patience 8 --min-delta 0.0005
 ```
 
 ## Validation diagnostics and homelab site

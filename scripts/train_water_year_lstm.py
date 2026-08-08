@@ -59,31 +59,40 @@ def main():
  p.add_argument('--checkpoint',type=Path,required=True,help='Destination for the latest continuation checkpoint.')
  p.add_argument('--resume-from',type=Path,default=None,help='Load model weights and, when available, AdamW state from this checkpoint.')
  p.add_argument('--epochs',type=int,default=15,help='Additional epochs to run after --resume-from.')
+ p.add_argument('--early-stopping-patience',type=int,default=0,help='Stop after this many consecutive validation epochs without a meaningful improvement; 0 disables early stopping.')
+ p.add_argument('--min-delta',type=float,default=0.0,help='Required absolute validation-loss decrease to reset early-stopping patience.')
  p.add_argument('--chunk-days',type=int,default=30,help='Days decoded per loop; use 0 for one unchunked Oct--Sep forward/backward pass.')
  p.add_argument('--full-bptt',action='store_true',help='Keep the Oct--Sep graph connected; one update per site-year.')
  p.add_argument('--recurrent-cell',choices=('gru','lstm'),default='lstm',help='Use gru for the water-year ConvGRU comparison.')
  p.add_argument('--learning-rate',type=float,default=1e-3,help='AdamW learning rate; use a smaller value for a weights-only warm-start.')
  p.add_argument('--threads',type=int,default=32);p.add_argument('--device',default='auto',help='auto (default), cpu, cuda, or cuda:N.');p.add_argument('--seed',type=int,default=20260804);a=p.parse_args()
+ if a.early_stopping_patience<0 or a.min_delta<0:p.error('--early-stopping-patience and --min-delta must be non-negative')
  torch.set_num_threads(a.threads);torch.set_num_interop_threads(1);torch.manual_seed(a.seed);device=resolve_device(a.device)
  stats=json.loads(a.normalization.read_text())['groups'];train=WaterYearDataset(a.manifest,'dev_train');val=WaterYearDataset(a.manifest,'dev_spatial_val')
  config=model_config(stats,a.recurrent_cell);model=ConvGRUMultitask(**config).to(device);opt=torch.optim.AdamW(model.parameters(),lr=a.learning_rate)
- start_epoch=0;best=float('inf');resume_note=None
+ start_epoch=0;best=float('inf');non_improving_epochs=0;resume_note=None
  if a.resume_from:
   previous=torch.load(a.resume_from,map_location='cpu',weights_only=False)
   previous_config=previous.get('model_config',{})
   if previous_config.get('recurrent_cell','gru')!=a.recurrent_cell:raise ValueError('Resume checkpoint recurrent cell does not match --recurrent-cell')
   model.load_state_dict(previous['model_state'])
-  start_epoch=int(previous.get('epoch',0));best=float(previous.get('metrics',{}).get('validation_mean_loss',best))
+  start_epoch=int(previous.get('epoch',0));best=float(previous.get('best_validation_loss',previous.get('metrics',{}).get('validation_mean_loss',best)))
+  non_improving_epochs=int(previous.get('non_improving_epochs',0))
   if 'optimizer_state' in previous:opt.load_state_dict(previous['optimizer_state']);resume_note='model_and_adamw_state'
   else:resume_note='model_weights_only_fresh_adamw'
-  print({'resume_from':str(a.resume_from),'start_epoch':start_epoch,'resume_mode':resume_note,'prior_best_validation_loss':best},flush=True)
+  print({'resume_from':str(a.resume_from),'start_epoch':start_epoch,'resume_mode':resume_note,'prior_best_validation_loss':best,'prior_non_improving_epochs':non_improving_epochs},flush=True)
  loss_fn=site_loss_full_bptt if a.full_bptt else site_loss_tbptt
  for epoch in range(start_epoch+1,start_epoch+a.epochs+1):
   started=time.perf_counter();model.train();tl=[loss_fn(model,s,stats,a.chunk_days,opt,device) for s in train];model.eval()
   with torch.no_grad():vl=[loss_fn(model,s,stats,a.chunk_days,None,device) for s in val]
   metric={'epoch':epoch,'train_mean_loss':sum(tl)/len(tl),'validation_mean_loss':sum(vl)/len(vl),'epoch_seconds':time.perf_counter()-started}
-  payload={'model_state':model.state_dict(),'optimizer_state':opt.state_dict(),'epoch':epoch,'model_config':config,'normalization':str(a.normalization),'resume_from':str(a.resume_from) if a.resume_from else None,'resume_mode':resume_note,'runtime_config':{'device':str(device),'threads':a.threads},'stateful_protocol':{'start':'water_year_october_1','chunk_days':a.chunk_days,'sequence_execution':'single_full_water_year_pass' if a.chunk_days==0 else 'chronological_chunks','loss_months':[6,7,8,9],'backpropagation':'full_october_to_september' if a.full_bptt else 'truncated_at_chunk_boundaries'},'metrics':metric}
+  improved=metric['validation_mean_loss']<best-a.min_delta
+  if improved:best=metric['validation_mean_loss'];non_improving_epochs=0
+  else:non_improving_epochs+=1
+  payload={'model_state':model.state_dict(),'optimizer_state':opt.state_dict(),'epoch':epoch,'model_config':config,'normalization':str(a.normalization),'resume_from':str(a.resume_from) if a.resume_from else None,'resume_mode':resume_note,'runtime_config':{'device':str(device),'threads':a.threads},'early_stopping':{'patience':a.early_stopping_patience,'min_delta':a.min_delta},'best_validation_loss':best,'non_improving_epochs':non_improving_epochs,'stateful_protocol':{'start':'water_year_october_1','chunk_days':a.chunk_days,'sequence_execution':'single_full_water_year_pass' if a.chunk_days==0 else 'chronological_chunks','loss_months':[6,7,8,9],'backpropagation':'full_october_to_september' if a.full_bptt else 'truncated_at_chunk_boundaries'},'metrics':metric}
   a.checkpoint.parent.mkdir(parents=True,exist_ok=True);torch.save(payload,a.checkpoint)
-  if metric['validation_mean_loss']<best:best=metric['validation_mean_loss'];torch.save(payload,a.checkpoint.with_name(a.checkpoint.stem+'_best'+a.checkpoint.suffix))
-  print({**metric,'device':str(device)},flush=True)
+  if improved:torch.save(payload,a.checkpoint.with_name(a.checkpoint.stem+'_best'+a.checkpoint.suffix))
+  print({**metric,'best_validation_loss':best,'non_improving_epochs':non_improving_epochs,'device':str(device)},flush=True)
+  if a.early_stopping_patience and non_improving_epochs>=a.early_stopping_patience:
+   print({'early_stopping':'triggered','epoch':epoch,'best_validation_loss':best,'patience':a.early_stopping_patience,'min_delta':a.min_delta},flush=True);break
 if __name__=='__main__':main()
