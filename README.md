@@ -163,6 +163,30 @@ python scripts/train_dev_cpu.py \
 true bounded ConvLSTM checkpoint. Checkpoint metadata records
 `recurrent_cell: lstm`; verify this before interpreting a run.
 
+#### Continuing fixed-window models
+
+The fixed 30-, 60-, and 90-day checkpoints save both model weights and AdamW
+state. Resume the validation-selected `*_best.pt` checkpoint into a new path;
+in `--resume-from` mode, `--epochs` means additional epochs. Use the same
+site-disjoint validation loss for early stopping, rather than training loss.
+
+```bash
+python scripts/train_dev_cpu.py \
+  --manifest artifacts/manifests/full75_val25_jun_sep_seq90_v1/manifest.csv \
+  --normalization artifacts/normalization/full75_val25_jun_sep_seq90_v1.json \
+  --resume-from artifacts/checkpoints/full75_val25_lstm_seq90_b16_cpu_best.pt \
+  --checkpoint artifacts/checkpoints/full75_val25_lstm_seq90_b16_e60_cpu.pt \
+  --epochs 50 --learning-rate 2e-4 --batch-size 16 --threads 32 \
+  --interop-threads 1 --recurrent-cell lstm --enforce-physical-bounds \
+  --validation-split dev_spatial_val \
+  --early-stopping-patience 8 --min-delta 0.0005
+```
+
+Use the corresponding `seq30` or `seq60` manifest and checkpoint names for
+the other two controlled continuations. `--early-stopping-patience 8` means
+eight consecutive validation epochs without at least `0.0005` improvement in
+normalized validation Huber loss; set it to `0` to disable the cap.
+
 ### Stateful water-year ConvGRU and ConvLSTM
 
 The water-year experiment starts at October 1 and carries the recurrent state

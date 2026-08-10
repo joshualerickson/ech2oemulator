@@ -49,7 +49,7 @@ def main() -> None:
     )
     template = template.replace(
         "</p><div class=\"controls\">",
-        "</p><p class=\"note\"><strong>Current model coverage:</strong> this explorer currently contains LSTM / 30 days only. Other model summaries are available on the model-comparison page; adding all-model pixel strata requires separate exhaustive pixel-level evaluations.</p><div class=\"controls\">",
+        "</p><p class=\"note\"><strong>Model coverage:</strong> the selector includes the continued fixed-window LSTM and the continued full-water-year BPTT LSTM. Full BPTT uses the continuity-valid 97-site validation subset, so interpret cross-model differences with that cohort distinction in mind.</p><div class=\"controls\">",
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(template.replace("__PLOTLY_JS__", plotly_js).replace("__PAYLOAD__", payload))

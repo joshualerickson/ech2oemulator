@@ -33,7 +33,7 @@ def main() -> None:
     )
     template = template.replace(
         "</p><div class=\"controls\">",
-        "</p><p class=\"muted\"><strong>Current model coverage:</strong> LSTM / 30 days only. This page is a pixel-level diagnostic, not yet an all-model comparison.</p><div class=\"controls\">",
+        "</p><p class=\"muted\"><strong>Model coverage:</strong> continued fixed-window LSTM and continued full-water-year BPTT LSTM. Full BPTT uses the continuity-valid 97-site validation subset; this is a pixel-level diagnostic, not a cross-cohort winner selection.</p><div class=\"controls\">",
     )
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(template.replace("__PLOTLY_JS__", plotly_js).replace("__PAYLOAD__", payload))
