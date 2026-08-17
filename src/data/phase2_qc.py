@@ -11,6 +11,7 @@ import rasterio
 import xarray as xr
 
 from src.data.target_qc import TARGET_PLAUSIBILITY_RANGES, plausibility_mask
+from src.data.temporal_contract import forcing_index_for_target_date, target_dates
 
 
 DYNAMIC_CHANNELS = ("prcp", "srad", "tmin", "tmax", "rmin", "rmax")
@@ -18,9 +19,8 @@ TARGET_CHANNELS = ("soilmoisture", "tskin_am", "tskin_pm", "plc_am", "plc_pm")
 
 
 def water_year_dates(water_year_end: int, count: int) -> list[date]:
-    """Return source dates under the approved Oct-1 water-year convention."""
-    start = date(water_year_end - 1, 10, 1)
-    return [start + timedelta(days=index) for index in range(count)]
+    """Compatibility alias for target NetCDF dates; use ``target_dates`` in new code."""
+    return target_dates(water_year_end, count)
 
 
 def target_grid_crop(array: np.ndarray) -> np.ndarray:
@@ -43,26 +43,48 @@ def iter_daily_screen_rows(
 
     if time_start < 0:
         raise ValueError("time_start must be non-negative")
-    forcing_valid: np.ndarray | None = None
-    forcing_invalid_pixels: np.ndarray | None = None
+    # ``run_phase2_screen`` calls this in bounded target-time blocks. Read only
+    # forcing bands that can join to this block; otherwise an October--December
+    # target block would repeatedly reread an entire calendar forcing stack.
+    screen_stop = time_stop if time_stop is not None else 366
+    requested_dates = target_dates(water_year_end, screen_stop)[time_start:screen_stop]
+    # date -> full-support valid, total invalid pixels, forcing band index,
+    # invalid edge pixels, channels with any invalid edge pixel.
+    forcing_by_date: dict[date, tuple[bool, int, int, int, int]] = {}
+    forcing_count: int | None = None
     for channel in DYNAMIC_CHANNELS:
         path = site_dir / f"{channel}_{water_year_end}.tif"
         with rasterio.open(path) as dataset:
-            stop = dataset.count if time_stop is None else min(time_stop, dataset.count)
-            if time_start >= stop:
-                raise ValueError(f"Empty forcing time slice [{time_start}, {stop}) for {path}")
-            valid = target_grid_crop(
-                dataset.read_masks(indexes=list(range(time_start + 1, stop + 1))) > 0
-            )
+            if forcing_count is None:
+                forcing_count = dataset.count
+            elif forcing_count != dataset.count:
+                raise ValueError(f"Forcing band-count mismatch in {site_dir}: {path}")
+            requested = [
+                (current_date, forcing_index_for_target_date(current_date, water_year_end, dataset.count))
+                for current_date in requested_dates
+            ]
+            requested = [(current_date, index) for current_date, index in requested if index is not None]
+            if not requested:
+                continue
+            valid = target_grid_crop(dataset.read_masks(indexes=[index + 1 for _, index in requested]) > 0)
         channel_valid = np.all(valid, axis=(1, 2))
         invalid_pixels = np.count_nonzero(~valid, axis=(1, 2))
-        forcing_valid = channel_valid if forcing_valid is None else forcing_valid & channel_valid
-        forcing_invalid_pixels = (
-            invalid_pixels
-            if forcing_invalid_pixels is None
-            else forcing_invalid_pixels + invalid_pixels
-        )
-    assert forcing_valid is not None and forcing_invalid_pixels is not None
+        edge = np.zeros_like(valid, dtype=bool)
+        edge[:, 0, :] = True
+        edge[:, -1, :] = True
+        edge[:, :, 0] = True
+        edge[:, :, -1] = True
+        edge_invalid_pixels = np.count_nonzero(~valid & edge, axis=(1, 2))
+        for local_index, (current_date, forcing_index) in enumerate(requested):
+            prior = forcing_by_date.get(current_date, (True, 0, forcing_index, 0, 0))
+            forcing_by_date[current_date] = (
+                prior[0] and bool(channel_valid[local_index]),
+                prior[1] + int(invalid_pixels[local_index]),
+                forcing_index,
+                prior[3] + int(edge_invalid_pixels[local_index]),
+                prior[4] + int(edge_invalid_pixels[local_index] > 0),
+            )
+    assert forcing_count is not None
 
     target_violations: dict[str, np.ndarray] = {}
     target_valid_counts: dict[str, np.ndarray] = {}
@@ -98,23 +120,27 @@ def iter_daily_screen_rows(
             target_min[target] = np.nanmin(masked_values, axis=(1, 2))
             target_max[target] = np.nanmax(masked_values, axis=(1, 2))
     assert count is not None
-    if forcing_valid.shape[0] != count:
-        raise ValueError(f"Forcing/target time count mismatch in {site_dir}")
-
     assert total_count is not None
-    for index, current_date in enumerate(water_year_dates(water_year_end, total_count)[time_start : time_start + count]):
-        violations = {target: int(values[index]) for target, values in target_violations.items()}
+    for local_index, current_date in enumerate(target_dates(water_year_end, total_count)[time_start : time_start + count]):
+        index = time_start + local_index
+        forcing = forcing_by_date.get(current_date)
+        violations = {target: int(values[local_index]) for target, values in target_violations.items()}
         yield {
             "site_id": site_dir.name,
             "bbox_id": site_dir.name,
             "water_year_end": water_year_end,
             "date": current_date.isoformat(),
-            "forcing_valid": bool(forcing_valid[index]),
-            "forcing_invalid_pixel_count": int(forcing_invalid_pixels[index]),
+            "target_time_index": index,
+            "forcing_time_index": "" if forcing is None else forcing[2],
+            "forcing_available": forcing is not None,
+            "forcing_valid": False if forcing is None else forcing[0],
+            "forcing_invalid_pixel_count": 0 if forcing is None else forcing[1],
+            "forcing_edge_invalid_pixel_count": 0 if forcing is None else forcing[3],
+            "forcing_edge_invalid_channel_count": 0 if forcing is None else forcing[4],
             "target_plausibility_violation_count": sum(violations.values()),
             "target_qa_valid": not any(violations.values()),
             **{f"{target}_plausibility_violation_count": value for target, value in violations.items()},
-            **{f"{target}_valid_pixel_count": int(values[index]) for target, values in target_valid_counts.items()},
-            **{f"{target}_raw_min": float(values[index]) for target, values in target_min.items()},
-            **{f"{target}_raw_max": float(values[index]) for target, values in target_max.items()},
+            **{f"{target}_valid_pixel_count": int(values[local_index]) for target, values in target_valid_counts.items()},
+            **{f"{target}_raw_min": float(values[local_index]) for target, values in target_min.items()},
+            **{f"{target}_raw_max": float(values[local_index]) for target, values in target_max.items()},
         }

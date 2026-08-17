@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Stateful Oct--Sep ConvGRU/ConvLSTM training with TBPTT or full water-year BPTT."""
+"""Stateful Jan--Sep ConvGRU/ConvLSTM training with TBPTT or full BPTT."""
 from __future__ import annotations
 import argparse,json,sys,time
 from pathlib import Path
@@ -37,7 +37,7 @@ def site_loss_tbptt(model,s,stats,chunk,optim=None,device=torch.device('cpu')):
  return sum(losses)/len(losses)
 
 def site_loss_full_bptt(model,s,stats,chunk,optim=None,device=torch.device('cpu')):
- """Backpropagate summer loss through the uninterrupted Oct--Sep state path.
+ """Backpropagate summer loss through the uninterrupted Jan--Sep state path.
 
  Chunks only limit the Python-side decoding loop; their recurrent states remain
  connected.  One optimizer step is made only after the complete site-year.
@@ -61,8 +61,8 @@ def main():
  p.add_argument('--epochs',type=int,default=15,help='Additional epochs to run after --resume-from.')
  p.add_argument('--early-stopping-patience',type=int,default=0,help='Stop after this many consecutive validation epochs without a meaningful improvement; 0 disables early stopping.')
  p.add_argument('--min-delta',type=float,default=0.0,help='Required absolute validation-loss decrease to reset early-stopping patience.')
- p.add_argument('--chunk-days',type=int,default=30,help='Days decoded per loop; use 0 for one unchunked Oct--Sep forward/backward pass.')
- p.add_argument('--full-bptt',action='store_true',help='Keep the Oct--Sep graph connected; one update per site-year.')
+ p.add_argument('--chunk-days',type=int,default=30,help='Days decoded per loop; use 0 for one unchunked Jan--Sep forward/backward pass.')
+ p.add_argument('--full-bptt',action='store_true',help='Keep the Jan--Sep graph connected; one update per site-year.')
  p.add_argument('--recurrent-cell',choices=('gru','lstm'),default='lstm',help='Use gru for the water-year ConvGRU comparison.')
  p.add_argument('--learning-rate',type=float,default=1e-3,help='AdamW learning rate; use a smaller value for a weights-only warm-start.')
  p.add_argument('--threads',type=int,default=32);p.add_argument('--device',default='auto',help='auto (default), cpu, cuda, or cuda:N.');p.add_argument('--seed',type=int,default=20260804);a=p.parse_args()
@@ -89,7 +89,7 @@ def main():
   improved=metric['validation_mean_loss']<best-a.min_delta
   if improved:best=metric['validation_mean_loss'];non_improving_epochs=0
   else:non_improving_epochs+=1
-  payload={'model_state':model.state_dict(),'optimizer_state':opt.state_dict(),'epoch':epoch,'model_config':config,'normalization':str(a.normalization),'resume_from':str(a.resume_from) if a.resume_from else None,'resume_mode':resume_note,'runtime_config':{'device':str(device),'threads':a.threads},'early_stopping':{'patience':a.early_stopping_patience,'min_delta':a.min_delta},'best_validation_loss':best,'non_improving_epochs':non_improving_epochs,'stateful_protocol':{'start':'water_year_october_1','chunk_days':a.chunk_days,'sequence_execution':'single_full_water_year_pass' if a.chunk_days==0 else 'chronological_chunks','loss_months':[6,7,8,9],'backpropagation':'full_october_to_september' if a.full_bptt else 'truncated_at_chunk_boundaries'},'metrics':metric}
+  payload={'model_state':model.state_dict(),'optimizer_state':opt.state_dict(),'epoch':epoch,'model_config':config,'normalization':str(a.normalization),'resume_from':str(a.resume_from) if a.resume_from else None,'resume_mode':resume_note,'runtime_config':{'device':str(device),'threads':a.threads},'early_stopping':{'patience':a.early_stopping_patience,'min_delta':a.min_delta},'best_validation_loss':best,'non_improving_epochs':non_improving_epochs,'stateful_protocol':{'temporal_contract':'target_water_year_forcing_calendar_year_v2','start':'calendar_year_january_1','end':'calendar_year_september_30','chunk_days':a.chunk_days,'sequence_execution':'single_full_jan_to_sep_pass' if a.chunk_days==0 else 'chronological_chunks','loss_months':[6,7,8,9],'backpropagation':'full_january_to_september' if a.full_bptt else 'truncated_at_chunk_boundaries'},'metrics':metric}
   a.checkpoint.parent.mkdir(parents=True,exist_ok=True);torch.save(payload,a.checkpoint)
   if improved:torch.save(payload,a.checkpoint.with_name(a.checkpoint.stem+'_best'+a.checkpoint.suffix))
   print({**metric,'best_validation_loss':best,'non_improving_epochs':non_improving_epochs,'device':str(device)},flush=True)

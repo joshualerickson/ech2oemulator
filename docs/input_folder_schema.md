@@ -22,9 +22,17 @@ $ECH2O_DATA_ROOT/
 └── CA.../
 ```
 
-`YYYY` is the **water-year end**, and raster/NetCDF band zero is October 1 of
-the preceding year. The validation script checks this layout, target names,
-daily band counts, the forcing/target one-cell inset, and static alignment:
+`YYYY` has different semantics for the two temporal source types:
+
+- `SITE_ID-YYYY_subdaily.nc` is target data with water-year band zero at
+  `YYYY-1-10-01`.
+- `*_YYYY.tif` is forcing data with calendar-year band zero at `YYYY-01-01`.
+
+They are joined by ISO calendar date, never by matching band number. The
+canonical training overlap is `YYYY-01-01` through `YYYY-09-30`; target-only
+October--December days remain in QA output but cannot form model samples. The
+validation script checks this layout, target names, daily band counts, the
+forcing/target one-cell inset, and static alignment:
 
 ```bash
 python scripts/inspect_phase1_schema.py \

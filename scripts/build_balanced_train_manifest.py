@@ -9,11 +9,14 @@ import random
 from collections import Counter, defaultdict
 from datetime import date, timedelta
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.data.temporal_contract import TEMPORAL_CONTRACT
 
 
 FIELDS = (
-    "split", "site_id", "bbox_id", "water_year_end", "start_date", "end_date", "target_date",
-    "sequence_length", "dynamic_sequence_source", "static_source", "target_source",
+    "split", "site_id", "bbox_id", "water_year_end", "temporal_contract", "start_date", "end_date", "target_date",
+    "sequence_length", "target_time_index", "forcing_start_index", "forcing_end_index", "dynamic_sequence_source", "static_source", "target_source",
 )
 
 
@@ -39,9 +42,9 @@ def eligible_rows(site_id: str, daily_dir: Path, data_root: Path, months: set[in
             continue
         output.append({
             "split": "dev_train", "site_id": site_id, "bbox_id": site_id,
-            "water_year_end": water_year_end, "start_date": history[0]["date"],
+            "water_year_end": water_year_end, "temporal_contract": TEMPORAL_CONTRACT, "start_date": history[0]["date"],
             "end_date": target["date"], "target_date": target["date"],
-            "sequence_length": sequence_length, "dynamic_sequence_source": str(root),
+            "sequence_length": sequence_length, "target_time_index": target["target_time_index"], "forcing_start_index": history[0]["forcing_time_index"], "forcing_end_index": target["forcing_time_index"], "dynamic_sequence_source": str(root),
             "static_source": str(root / "Spatial"),
             "target_source": str(root / f"{site_id}-{water_year_end}_subdaily.nc"),
         })

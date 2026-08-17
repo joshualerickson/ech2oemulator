@@ -9,6 +9,9 @@ import random
 from collections import defaultdict
 from datetime import date, timedelta
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.data.temporal_contract import TEMPORAL_CONTRACT
 
 
 def read_csv(path: Path) -> list[dict[str, str]]:
@@ -86,9 +89,9 @@ def main() -> None:
             site_dir = args.data_root / site_id
             output_rows.append({
                 "split": split, "site_id": site_id, "bbox_id": site_id,
-                "water_year_end": water_year, "start_date": history[0]["date"],
+                "water_year_end": water_year, "temporal_contract": TEMPORAL_CONTRACT, "start_date": history[0]["date"],
                 "end_date": target["date"], "target_date": target["date"],
-                "sequence_length": args.sequence_length,
+                "sequence_length": args.sequence_length, "target_time_index": target["target_time_index"], "forcing_start_index": history[0]["forcing_time_index"], "forcing_end_index": target["forcing_time_index"],
                 "dynamic_sequence_source": str(site_dir), "static_source": str(site_dir / "Spatial"),
                 "target_source": str(site_dir / f"{site_id}-{water_year}_subdaily.nc"),
             })

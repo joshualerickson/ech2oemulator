@@ -1,19 +1,24 @@
 # Portable on-disk input schema. Paths are relative to --data-root.
-schema_version: 1
+schema_version: 2
 data_root: /path/to/ech2o_ai
 site_directory: "{site_id}/"
 site_id: "Two-letter state prefix followed by the source site identifier."
 water_year:
   filename_year: YYYY
-  first_day: "(YYYY - 1)-10-01"
-  note: "Never interpret raster band 0 as January 1."
+  target_band_zero_date: "(YYYY - 1)-10-01"
+  forcing_band_zero_date: "YYYY-01-01"
+  usable_target_forcing_overlap: "YYYY-01-01 through YYYY-09-30"
+  join_key: "ISO calendar date; target and forcing band indices are intentionally different."
+  excluded_target_period: "(YYYY - 1)-10-01 through (YYYY - 1)-12-31: no matching calendar-year forcing source."
 required_per_site:
   dynamic_forcing:
     path_pattern: "{channel}_{water_year_end}.tif"
+    filename_semantics: "calendar year YYYY"
     channels: [prcp, srad, tmin, tmax, rmin, rmax]
     expected_grid: "One-cell perimeter around target support; crop [1:-1, 1:-1]."
   target:
     path_pattern: "{site_id}-{water_year_end}_subdaily.nc"
+    filename_semantics: "water-year end YYYY"
     variables: [soilmoisture, tskin_am, tskin_pm, plc_am, plc_pm]
     expected_crs: EPSG:5070
   site_static_ascii:

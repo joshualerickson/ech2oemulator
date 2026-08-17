@@ -21,11 +21,12 @@ if __package__ in {None, ""}:
 
 from src.data.static_contract import EXTERNAL_STATIC_SOURCES, Grid, read_ascii_on_target_grid, resolve_ascii_static
 from src.data.paths import configured_data_root
+from src.data.temporal_contract import TEMPORAL_CONTRACT
 
 
 MANIFEST_FIELDS = (
-    "split", "site_id", "bbox_id", "water_year_end", "start_date", "end_date", "target_date",
-    "sequence_length", "dynamic_sequence_source", "static_source", "target_source",
+    "split", "site_id", "bbox_id", "water_year_end", "temporal_contract", "start_date", "end_date", "target_date",
+    "sequence_length", "target_time_index", "forcing_start_index", "forcing_end_index", "dynamic_sequence_source", "static_source", "target_source",
 )
 
 
@@ -50,9 +51,9 @@ def sequence_rows(site_id: str, daily_dir: Path, data_root: Path, months: set[in
         if any(day is None or day["forcing_valid"] != "True" for day in history):
             continue
         rows.append({
-            "split": "", "site_id": site_id, "bbox_id": site_id, "water_year_end": water_year,
+            "split": "", "site_id": site_id, "bbox_id": site_id, "water_year_end": water_year, "temporal_contract": TEMPORAL_CONTRACT,
             "start_date": history[0]["date"], "end_date": target["date"], "target_date": target["date"],
-            "sequence_length": length, "dynamic_sequence_source": str(root), "static_source": str(root / "Spatial"),
+            "sequence_length": length, "target_time_index": target["target_time_index"], "forcing_start_index": history[0]["forcing_time_index"], "forcing_end_index": target["forcing_time_index"], "dynamic_sequence_source": str(root), "static_source": str(root / "Spatial"),
             "target_source": str(root / f"{site_id}-{water_year}_subdaily.nc"),
         })
     return rows

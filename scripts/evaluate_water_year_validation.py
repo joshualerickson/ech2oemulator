@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Exhaustively evaluate stateful Oct--Sep recurrent checkpoints by pixel."""
+"""Exhaustively evaluate stateful Jan--Sep recurrent checkpoints by pixel."""
 from __future__ import annotations
 
 import argparse

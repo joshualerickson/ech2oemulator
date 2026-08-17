@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Fit stateful-LSTM scaling from train sites; forcings use full Oct--Sep history."""
+"""Fit stateful recurrent scaling from train sites over the Jan--Sep overlap."""
 from __future__ import annotations
 import argparse,sys
 from pathlib import Path

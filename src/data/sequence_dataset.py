@@ -12,9 +12,14 @@ import torch
 import xarray as xr
 from torch.utils.data import Dataset
 
-from src.data.phase2_qc import DYNAMIC_CHANNELS, TARGET_CHANNELS, water_year_dates
+from src.data.phase2_qc import DYNAMIC_CHANNELS, TARGET_CHANNELS
 from src.data.static_contract import Grid, STATIC_CHANNELS, load_selected_static_stack
 from src.data.target_qc import mask_implausible
+from src.data.temporal_contract import (
+    TEMPORAL_CONTRACT,
+    forcing_index_for_target_date,
+    target_index_for_date,
+)
 
 
 class SequenceDataset(Dataset[dict[str, Any]]):
@@ -26,6 +31,12 @@ class SequenceDataset(Dataset[dict[str, Any]]):
         if not self.rows:
             raise ValueError(f"No rows for split {split!r} in {manifest_path}")
         self.split = split
+        contracts = {row.get("temporal_contract") for row in self.rows}
+        if contracts != {TEMPORAL_CONTRACT}:
+            raise ValueError(
+                "Manifest does not declare the calendar-forcing/target-water-year v2 contract. "
+                "Rebuild daily screens and manifests; historical v1 manifests are intentionally rejected."
+            )
         self._static_cache: dict[str, torch.Tensor] = {}
         self._grid_cache: dict[str, Grid] = {}
         self.cache_site_arrays=cache_site_arrays; self._site_arrays: dict[str, tuple[list[np.ndarray],list[np.ndarray]]]={}
@@ -62,16 +73,26 @@ class SequenceDataset(Dataset[dict[str, Any]]):
         sequence_length = int(row["sequence_length"])
         water_year = int(row["water_year_end"])
         target_date = date.fromisoformat(row["target_date"])
-        dates = water_year_dates(water_year, 366 if water_year % 4 == 0 else 365)
-        target_index = dates.index(target_date)
-        start_index = target_index - sequence_length + 1
-        if start_index < 0:
-            raise AssertionError(f"Manifest sequence starts before water-year source: {row}")
+        with rasterio.open(Path(row["dynamic_sequence_source"]) / f"{DYNAMIC_CHANNELS[0]}_{water_year}.tif") as reference:
+            forcing_count = reference.count
+        with xr.open_dataset(row["target_source"], engine="h5netcdf", decode_cf=False, mask_and_scale=False) as reference:
+            target_count = int(reference.sizes["time"])
+        target_index = target_index_for_date(target_date, water_year, target_count)
+        forcing_end_index = forcing_index_for_target_date(target_date, water_year, forcing_count)
+        if target_index is None or forcing_end_index is None:
+            raise AssertionError(f"Manifest target date is outside the Jan--Sep forcing/target overlap: {row}")
+        forcing_start_index = forcing_end_index - sequence_length + 1
+        if forcing_start_index < 0:
+            raise AssertionError(f"Manifest sequence starts before calendar-year forcing source: {row}")
+        persisted = (int(row["target_time_index"]), int(row["forcing_start_index"]), int(row["forcing_end_index"]))
+        derived = (target_index, forcing_start_index, forcing_end_index)
+        if persisted != derived:
+            raise AssertionError(f"Manifest source indices do not match its ISO dates: persisted={persisted}, derived={derived}, row={row}")
         dynamic: list[np.ndarray] = []
         site_dir = Path(row["dynamic_sequence_source"])
-        indices = list(range(start_index + 1, target_index + 2))
+        indices = list(range(forcing_start_index + 1, forcing_end_index + 2))
         if self.cache_site_arrays:
-            cached_dynamic,cached_targets=self._arrays(row,water_year); dynamic=[values[start_index:target_index+1] for values in cached_dynamic]
+            cached_dynamic,cached_targets=self._arrays(row,water_year); dynamic=[values[forcing_start_index:forcing_end_index+1] for values in cached_dynamic]
         else:
             cached_targets=[]
             for channel in DYNAMIC_CHANNELS:

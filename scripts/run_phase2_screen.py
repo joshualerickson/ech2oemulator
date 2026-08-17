@@ -22,6 +22,11 @@ def main() -> None:
     if a.data_root is None: p.error("set ECH2O_DATA_ROOT or pass --data-root")
     schema=json.loads(a.schema_report.read_text())
     sites=[s for s in schema['sites'] if not s['issues']][a.site_offset:]
+    if not sites:
+        raise ValueError(
+            "Schema report contains zero source-valid site bundles. "
+            "Do not create a daily-screen artifact or downstream split; verify --data-root points to the ECH2O site directory containing *_subdaily.nc files."
+        )
     if a.site_limit is not None: sites=sites[:a.site_limit]
     for n,s in enumerate(sites,1):
         site_id=str(s['site_id']); wy=int(s['water_year_end']); output=a.output_dir/f'{site_id}_{wy}_daily_screen.csv'

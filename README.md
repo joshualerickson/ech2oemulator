@@ -44,9 +44,109 @@ path from entering an experiment.
 ## Data contract
 
 Read [the Phase 1 schema report](docs/phase1_schema_report.md) before using a
-new data copy. The critical date rule is that a file named `SITE-YYYY` begins
-on **October 1 of YYYY-1**, not January 1. Static ASCII rasters are interpreted
-as EPSG:5070 and must satisfy the documented one-cell inset relationship.
+new data copy. Targets in `SITE-YYYY_subdaily.nc` use a water-year axis, so
+target band zero is **October 1 of YYYY-1**. In contrast, forcing TIFF bands
+are calendar-year indexed: band zero is **January 1 of YYYY**. The sources are
+joined only by ISO calendar date—not by shared band number—and the supported
+training overlap is January 1 through September 30 of YYYY. October--December
+target days are retained in QA reports but deliberately excluded from modeling.
+Static ASCII rasters are interpreted as EPSG:5070 and must satisfy the
+documented one-cell inset relationship.
+
+## Source QA before any split or normalization
+
+Each newly transferred or regenerated source copy must pass this workflow
+before it is used to build a train/validation split. It is intentionally
+separate from model evaluation: these checks examine raw inputs and raw ECH2O
+targets, never predictions. The commands below use the current calendar-aware
+contract and audit the usable **January--September** overlap.
+
+1. **Inspect source bundles.** Validate the expected files, target variables,
+   static-grid/target-grid relationship, CRS assumptions, and the calendar
+   join contract. The schema report is the authoritative list of source-valid
+   bundles.
+
+2. **Screen each day.** Create one CSV per source-valid site. This verifies
+   the target/forcing ISO-date join, six-forcing availability, target masks,
+   grid alignment, and forcing validity over the entire target-support bbox.
+   It records target and forcing band indices independently.
+
+3. **Audit raw targets by target variable.** Score each target band separately
+   for suspicious seams, edge jumps, corner jumps, blockiness, and high-
+   frequency artifacts. `tskin_am` and `tskin_pm` are evaluated more
+   sensitively than PLC or soil moisture, whose real spatial gradients can be
+   sharp. Narrow, elongated bboxes are marked low-confidence rather than
+   automatically rejected.
+
+4. **Build a conservative review queue.** Apply the versioned manual override
+   file only after checking it against the new source copy. Automated signals
+   create `keep`, `review`, or candidate-exclusion actions; they do not silently
+   remove whole sites. Review timelines retain the flagged target indices and
+   ISO dates.
+
+5. **Summarize forcing-bbox continuity.** This is a pure forcing check: it
+   does not evaluate target values or artifacts. A clean day requires all six
+   forcing rasters to be available and valid across the full bbox. The summary
+   reports edge-NA counts and the longest contiguous clean run, which is the
+   direct eligibility diagnostic for fixed windows and stateful Jan--Sep replay.
+
+6. **Create split-ready decisions.** Combine source-contract status, target
+   artifact triage, and daily forcing QA into site- and target-level decision
+   tables. Resolve the review queue before constructing the persisted spatial
+   split; fit normalization only after that split is frozen.
+
+Example, using a named QA run directory:
+
+```bash
+QA_RUN=artifacts/reports/full_source_jan_sep_training_qa_corrected_v3
+DAILY_DIR=artifacts/manifests/phase2_daily_calendar_forcing_corrected_v3
+SCHEMA=artifacts/schema_reports/phase1_calendar_forcing_corrected_v3.json
+
+python scripts/inspect_phase1_schema.py \
+  --data-root "$ECH2O_DATA_ROOT" --output "$SCHEMA"
+
+python scripts/run_phase2_screen.py \
+  --schema-report "$SCHEMA" --data-root "$ECH2O_DATA_ROOT" \
+  --output-dir "$DAILY_DIR"
+
+python scripts/audit_manifest_target_artifacts.py \
+  --schema-report "$SCHEMA" --data-root "$ECH2O_DATA_ROOT" \
+  --output-dir "$QA_RUN" --months 1 2 3 4 5 6 7 8 9 --workers 6
+
+python scripts/build_target_artifact_triage.py \
+  --daily-audit "$QA_RUN/manifest_target_artifact_daily.csv" \
+  --overrides configs/data/target_artifact_manual_overrides_v1.csv \
+  --output "$QA_RUN/target_artifact_triage.csv"
+
+python scripts/summarize_forcing_bbox_qa.py \
+  --daily-dir "$DAILY_DIR" --output "$QA_RUN/forcing_bbox_qa_summary.csv"
+
+python scripts/build_training_qa_decisions.py \
+  --schema-report "$SCHEMA" --triage "$QA_RUN/target_artifact_triage.csv" \
+  --daily-dir "$DAILY_DIR" --output-dir "$QA_RUN"
+
+python scripts/build_training_qa_review.py \
+  --site-decisions "$QA_RUN/training_qa_site_decisions.csv" \
+  --target-decisions "$QA_RUN/training_qa_target_decisions.csv" \
+  --triage "$QA_RUN/target_artifact_triage.csv" \
+  --daily-artifact-audit "$QA_RUN/manifest_target_artifact_daily.csv" \
+  --output-dir "$QA_RUN"
+```
+
+The resulting review package contains:
+
+- `training_qa_site_decisions.csv`: source-contract and forcing-day status per site;
+- `training_qa_target_decisions.csv`: the action for each site/target pair;
+- `training_qa_site_target_artifact_stats.csv`: per-target median, p95, and
+  maximum artifact metrics for filtering and visual review;
+- `training_qa_include_candidates.csv`, `training_qa_review_sites.csv`, and
+  `training_qa_exclude_sites.csv`: concise site-level worklists;
+- `target_artifact_candidate_days.csv`: complete target-index/date timelines;
+- `forcing_bbox_qa_summary.csv`: Jan--Sep forcing completeness, edge-NA
+  diagnostics, and longest clean contiguous run.
+
+Keep the generated QA run directory with the associated source-data version;
+it is an input to splitting, not an interchangeable model artifact.
 
 The complete expected directory structure is in
 [the input-folder schema](docs/input_folder_schema.md) and
@@ -72,18 +172,33 @@ All commands run from the repository root.
      --output artifacts/schema_reports/phase1_schema.json
    ```
 
-2. Run daily QA, then construct a persisted site-level split. The full split
+2. Rebuild every daily screen under the v2 date contract. This records both
+   `target_time_index` and `forcing_time_index`; October--December rows must
+   show `forcing_available=False`. Every v2 fixed-window manifest then persists
+   `target_time_index`, `forcing_start_index`, and `forcing_end_index`; the
+   dataset recomputes and asserts those indices from the ISO dates before it
+   reads a raster. This deliberately rejects all historical v1 manifests.
+
+   ```bash
+   python scripts/run_phase2_screen.py \
+     --schema-report artifacts/schema_reports/phase1_schema.json \
+     --data-root "$ECH2O_DATA_ROOT" \
+     --output-dir artifacts/manifests/phase2_daily_v2 \
+     --overwrite
+   ```
+
+3. Construct a new persisted site-level split. The full split
    keeps the external panel out of both train and validation.
 
    ```bash
    python scripts/build_full_spatial_split.py \
-     --daily-dir artifacts/manifests/phase2_daily \
+     --daily-dir artifacts/manifests/phase2_daily_v2 \
      --data-root "$ECH2O_DATA_ROOT" \
      --external-manifest artifacts/manifests/external_panel_v1/manifest.csv \
      --output-dir artifacts/manifests/full75_val25_jun_sep_v1
    ```
 
-3. Fit normalization using `dev_train` only and train the bounded ConvGRU.
+4. Fit normalization using `dev_train` only and train the bounded ConvGRU.
 
    ```bash
    python scripts/fit_dev_normalization.py \
@@ -187,22 +302,23 @@ the other two controlled continuations. `--early-stopping-patience 8` means
 eight consecutive validation epochs without at least `0.0005` improvement in
 normalized validation Huber loss; set it to `0` to disable the cap.
 
-### Stateful water-year ConvGRU and ConvLSTM
+### Stateful Jan--September ConvGRU and ConvLSTM
 
-The water-year experiment starts at October 1 and carries the recurrent state
-through the site-year. It resets only at a site/water-year boundary. For LSTM,
+The stateful experiment starts on January 1 and carries the recurrent state
+through September 30 of the water-year end calendar year. It resets only at a
+site/water-year boundary. For LSTM,
 that state is the hidden state plus cell state; for GRU, it is the hidden state.
-`--full-bptt` keeps the full Oct--Sep graph connected and performs one optimizer
+`--full-bptt` keeps the full Jan--Sep graph connected and performs one optimizer
 update per site-year. Without it, the state is still carried forward but its
 gradient is detached at each `--chunk-days` boundary (stateful TBPTT).
 
 | Temporal protocol | ConvGRU | ConvLSTM |
 | --- | --- | --- |
 | Fixed 30 / 60 / 90 days | supported | supported |
-| Stateful Oct--Sep (TBPTT) | supported | supported |
-| Full-year BPTT | supported | supported |
+| Stateful Jan--Sep (TBPTT) | supported | supported |
+| Full Jan--Sep BPTT | supported | supported |
 
-This makes the fair long-memory experiment explicit: use the same water-year
+This makes the fair long-memory experiment explicit: use the same Jan--Sep
 manifest, normalization, chunk size, seed, loss months, and BPTT mode; vary
 only `--recurrent-cell`.
 
@@ -215,7 +331,7 @@ python scripts/train_water_year_recurrent.py \
   --recurrent-cell lstm
 ```
 
-`--chunk-days 0` is the strictest full-BPTT protocol: one unchunked Oct--Sep
+`--chunk-days 0` is the strictest full-BPTT protocol: one unchunked Jan--Sep
 forward/backward pass per site-year. A positive `--chunk-days` only controls
 the implementation loop in full-BPTT mode; it does not detach the recurrent
 state or truncate gradients.

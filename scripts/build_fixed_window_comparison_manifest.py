@@ -8,11 +8,14 @@ import json
 from collections import Counter
 from datetime import date, timedelta
 from pathlib import Path
+import sys
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from src.data.temporal_contract import TEMPORAL_CONTRACT
 
 
 FIELDS = (
-    "split", "site_id", "bbox_id", "water_year_end", "start_date", "end_date", "target_date",
-    "sequence_length", "dynamic_sequence_source", "static_source", "target_source",
+    "split", "site_id", "bbox_id", "water_year_end", "temporal_contract", "start_date", "end_date", "target_date",
+    "sequence_length", "target_time_index", "forcing_start_index", "forcing_end_index", "dynamic_sequence_source", "static_source", "target_source",
 )
 
 
@@ -56,9 +59,9 @@ def main() -> None:
                 continue
             rows.append({
                 "split": source["split"], "site_id": site_id, "bbox_id": source["bbox_id"],
-                "water_year_end": source["water_year_end"], "start_date": history[0]["date"],
+                "water_year_end": source["water_year_end"], "temporal_contract": TEMPORAL_CONTRACT, "start_date": history[0]["date"],
                 "end_date": target["date"], "target_date": target["date"],
-                "sequence_length": args.sequence_length,
+                "sequence_length": args.sequence_length, "target_time_index": target["target_time_index"], "forcing_start_index": history[0]["forcing_time_index"], "forcing_end_index": target["forcing_time_index"],
                 "dynamic_sequence_source": source["dynamic_sequence_source"],
                 "static_source": source["static_source"], "target_source": source["target_source"],
             })

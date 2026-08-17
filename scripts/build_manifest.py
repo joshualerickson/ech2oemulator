@@ -15,6 +15,7 @@ if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.data.phase2_qc import iter_daily_screen_rows
+from src.data.temporal_contract import TEMPORAL_CONTRACT
 
 
 def write_csv(path: Path, rows: list[dict[str, object]]) -> None:
@@ -73,10 +74,14 @@ def main() -> None:
                     "site_id": site_id,
                     "bbox_id": site_id,
                     "water_year_end": water_year_end,
+                    "temporal_contract": TEMPORAL_CONTRACT,
                     "start_date": start_date.isoformat(),
                     "end_date": target_date.isoformat(),
                     "target_date": target_date.isoformat(),
                     "sequence_length": args.sequence_length,
+                    "target_time_index": target_row["target_time_index"],
+                    "forcing_start_index": history[0]["forcing_time_index"],
+                    "forcing_end_index": target_row["forcing_time_index"],
                     "dynamic_sequence_source": str(site_dir),
                     "static_source": str(site_dir / "Spatial"),
                     "target_source": str(site_dir / f"{site_id}-{water_year_end}_subdaily.nc"),

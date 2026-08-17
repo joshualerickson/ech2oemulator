@@ -7,7 +7,10 @@ data_root:
 crs: EPSG:5070
 calendar:
   filename_year_semantics: water_year_end
-  fallback_start: "previous_year-10-01"
+  target_fallback_start: "previous_year-10-01"
+  forcing_fallback_start: "same_year-01-01"
+  usable_overlap: "same_year-01-01 through same_year-09-30"
+  date_join: "ISO calendar date; never shared target/forcing band index"
   netcdf_time_policy: reject_unusable_time_coordinate_and_use_filename_contract
 target_support:
   policy: exact_one_cell_inset_of_forcing_bbox

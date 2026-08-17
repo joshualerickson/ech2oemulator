@@ -15,7 +15,12 @@ and five target variables in one subdaily NetCDF. Targets use EPSG:5070 at
 10–341). A batching strategy must therefore use padding/collation or
 fixed-size model patches; it may not assume one raster shape for all sites.
 
-## Calendar contract (required)
+## Calendar contract (superseded)
+
+This report was generated before the forcing calendar-year semantics were
+confirmed. Its target-NetCDF findings remain useful, but its former assumption
+that forcing and target band indices could be shared is retired. Regenerate the
+machine-readable Phase 1 report before the corrected rerun.
 
 The filename year is the **water-year end year**. NetCDF `time` is unusable
 (`units = "unknown"` in the inspected schema), so dates are derived as:
@@ -28,6 +33,10 @@ band i = band 0 + i calendar days
 All joins and manifest rows will use derived ISO calendar dates, never a raw
 band number or an assumed January 1 start. Coverage is 2011-10-01 through
 2024-09-30: 387 365-step and 124 366-step eligible site-years.
+
+**Corrected contract:** forcing TIFF band zero is `YYYY-01-01`; target NetCDF
+band zero is `(YYYY-1)-10-01`. The usable model overlap is `YYYY-01-01` to
+`YYYY-09-30`, joined by ISO date with independent source-band indices.
 
 ## Channel contract
 

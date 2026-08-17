@@ -1,0 +1,4 @@
+site_id,target,override_action,reason,reviewer_note
+MT4726811348520170724,*,exclude_site_all_targets,blocky messed-up artifacts,Manual visual QA decision
+UT3993711177920200906,*,exclude_site_all_targets,blocky messed-up artifacts,Manual visual QA decision
+CA3399211696420200731,*,keep_site_all_targets,natural Los Angeles basin-to-mountain thermal gradient,Large-area terrain/climate signal; retain despite automated seam flag

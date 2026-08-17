@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Replay an Oct--Sep stateful ConvGRU or ConvLSTM and export GIS-ready predictions."""
+"""Replay a Jan--Sep stateful ConvGRU or ConvLSTM and export GIS-ready predictions."""
 from __future__ import annotations
 import argparse,json,sys
 from pathlib import Path

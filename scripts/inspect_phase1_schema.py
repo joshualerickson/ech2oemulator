@@ -2,9 +2,10 @@
 """Inspect the ECH2O bbox source schema without creating training samples.
 
 The ECH2O ``*_YYYY_subdaily.nc`` filename year is the *water-year end year*.
-When NetCDF time metadata cannot supply usable dates, day/band zero is therefore
-``YYYY-1-10-01``.  This tool intentionally only reports source facts and data
-contract violations; it does not resample, clip, or otherwise alter rasters.
+When NetCDF time metadata cannot supply usable dates, target band zero is
+``YYYY-1-10-01``.  The forcing TIFFs are calendar-year files, so forcing band
+zero is ``YYYY-01-01``. This tool intentionally only reports source facts and
+data contract violations; it does not resample, clip, or otherwise alter rasters.
 """
 
 from __future__ import annotations
@@ -141,16 +142,26 @@ def inspect_site(site_dir: Path, full_nodata_scan: bool) -> dict[str, Any]:
 
     target_steps = target_counts.get("soilmoisture")
     forcing_steps = forcing_counts.get("prcp")
-    if target_steps and forcing_steps and target_steps != forcing_steps:
-        result["issues"].append("target_and_forcing_band_counts_disagree")
+    # Counts may differ at leap-year boundaries because targets are water-year
+    # arrays while forcing TIFFs are calendar-year arrays.  They join by date,
+    # not shared ordinal band index.
     if target_steps:
         start = date(water_year - 1, 10, 1)
         end = start + timedelta(days=target_steps - 1)
         result["fallback_date_contract"] = {
-            "source": "water_year_oct1_from_filename_due_to_unusable_or_untrusted_time_coordinate",
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
-            "step_count": target_steps,
+            "target": {
+                "source": "water_year_oct1_from_filename_due_to_unusable_or_untrusted_time_coordinate",
+                "start_date": start.isoformat(),
+                "end_date": end.isoformat(),
+                "step_count": target_steps,
+            },
+            "forcing": {
+                "source": "calendar_year_jan1_from_filename",
+                "start_date": date(water_year, 1, 1).isoformat(),
+                "end_date": (date(water_year, 1, 1) + timedelta(days=forcing_steps - 1)).isoformat() if forcing_steps else None,
+                "step_count": forcing_steps,
+            },
+            "usable_overlap": [date(water_year, 1, 1).isoformat(), date(water_year, 9, 30).isoformat()],
         }
     return result
 
@@ -191,8 +202,10 @@ def build_report(
         "inspection_scope": "metadata plus full target mask scan" if full_nodata_scan else "metadata only",
         "calendar_contract": {
             "water_year_filename_semantics": "YYYY is water-year end year",
-            "fallback_band_zero_date": "YYYY-1-10-01",
-            "date_join_key": "ISO calendar date derived from water-year convention; never ordinal band number alone",
+            "target_fallback_band_zero_date": "YYYY-1-10-01",
+            "forcing_fallback_band_zero_date": "YYYY-01-01",
+            "usable_overlap": "YYYY-01-01 through YYYY-09-30",
+            "date_join_key": "ISO calendar date; never share target and forcing ordinal band number",
         },
         "dynamic_channel_order": list(DYNAMIC_CHANNELS),
         "target_channel_order": list(TARGET_CHANNELS),
