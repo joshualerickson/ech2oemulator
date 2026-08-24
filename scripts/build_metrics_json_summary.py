@@ -13,12 +13,12 @@ def read_rows(path: Path) -> list[dict[str, object]]:
         rows = list(csv.DictReader(handle))
     converted = []
     for row in rows:
-        converted.append({key: int(value) if key == "count" else float(value) if key not in {"month", "state", "site_id", "target"} else value for key, value in row.items()})
+        converted.append({key: int(value) if key == "count" else float(value) if key not in {"month", "state", "site_id", "target", "domain"} else value for key, value in row.items()})
     return converted
 
 
 def metrics_only(row: dict[str, object]) -> dict[str, object]:
-    return {key: value for key, value in row.items() if key not in {"month", "state", "site_id", "target"}}
+    return {key: value for key, value in row.items() if key not in {"month", "state", "site_id", "target", "domain"}}
 
 
 def read_site_audit(path: Path | None) -> dict[str, dict[str, object]]:
@@ -46,6 +46,8 @@ def main() -> None:
     parser.add_argument("--metrics-dir", type=Path, required=True)
     parser.add_argument("--site-audit", type=Path, default=None,
                         help="Persisted site split audit with climate/terrain/bbox covariates.")
+    parser.add_argument("--channel-metrics", type=Path, default=None,
+                        help="Optional by_channel_domain_target.csv from evaluate_channel_mask.py.")
     parser.add_argument("--output", type=Path, default=None)
     args = parser.parse_args()
     destination = args.output or args.metrics_dir / "month_state_summary.json"
@@ -62,6 +64,12 @@ def main() -> None:
         "by_month": {},
         "site_diagnostics": [],
     }
+    if args.channel_metrics is not None:
+        channel_rows = read_rows(args.channel_metrics)
+        payload["channel_mask_by_domain"] = {
+            domain: {str(row["target"]): metrics_only(row) for row in channel_rows if str(row["domain"]) == domain}
+            for domain in sorted({str(row["domain"]) for row in channel_rows})
+        }
     states_overall: dict[str, object] = payload["by_state"]  # type: ignore[assignment]
     for row in by_state:
         state, target = str(row["state"]), str(row["target"])
