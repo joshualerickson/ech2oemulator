@@ -60,11 +60,20 @@ def main() -> None:
         for target, metrics in per_target_stats.items():
             decision = target_decision_by_name.get(target, {})
             artifact = triage_by_target.get(target, {})
+            site_excluded = row["training_site_status"].startswith("exclude")
             target_stat_rows.append({
                 "site_id": row["site_id"], "water_year_end": row["water_year_end"],
                 "site_status": row["training_site_status"], "target": target,
+                # Preserve the raw classifier outcome for diagnosis, but expose
+                # the final full-bbox eligibility separately.  A site-level
+                # support failure overrides otherwise-reviewable target flags.
                 "target_artifact_action": artifact.get("action", ""),
                 "target_automated_action": artifact.get("automated_action", ""),
+                "effective_full_bbox_training_status": (
+                    row["training_site_status"] if site_excluded
+                    else decision.get("effective_full_bbox_training_status", decision.get("target_training_status", artifact.get("action", "")))
+                ),
+                "effective_full_bbox_training_reason": row["reason"] if site_excluded else decision.get("effective_full_bbox_training_reason", decision.get("reason", "")),
                 "candidate_day_count": artifact.get("candidate_day_count", ""),
                 "candidate_index_date_preview": artifact.get("candidate_index_date_preview", ""),
                 **{f"{metric}_{statistic}": metrics[metric][statistic] for metric in metric_names for statistic in ("median", "p95", "max")},
@@ -125,7 +134,25 @@ def main() -> None:
         writer = csv.DictWriter(handle, fieldnames=list(target_stat_rows[0]))
         writer.writeheader()
         writer.writerows(target_stat_rows)
-    print({"exclude_sites": len(exclude_rows), "review_sites": len(review_rows), "include_candidates": len(include_rows), "site_status_counts": dict(Counter(row["training_site_status"] for row in sites))})
+    run_summary = {
+        "purpose": "final pre-split full-bbox training QA worklist summary",
+        "site_total": len(sites),
+        "exclude_sites": len(exclude_rows),
+        "review_sites": len(review_rows),
+        "include_candidates": len(include_rows),
+        "sites_not_excluded_pending_review_resolution": len(include_rows) + len(review_rows),
+        "sites_ready_for_split_without_additional_review": len(include_rows),
+        "site_status_counts": dict(sorted(Counter(row["training_site_status"] for row in sites).items())),
+        "forcing_daily_status_counts": dict(sorted(Counter(row.get("forcing_daily_status", "pending_daily_forcing_qa") for row in sites).items())),
+        "outputs": {
+            "exclude": "training_qa_exclude_sites.csv",
+            "review": "training_qa_review_sites.csv",
+            "include": "training_qa_include_candidates.csv",
+            "target_artifact_stats": "training_qa_site_target_artifact_stats.csv",
+        },
+    }
+    (args.output_dir / "training_qa_summary.json").write_text(json.dumps(run_summary, indent=2) + "\n")
+    print(run_summary)
 
 
 if __name__ == "__main__":

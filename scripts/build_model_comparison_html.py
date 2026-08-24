@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Build a standalone fixed-window model-comparison dashboard from JSON reports."""
+"""Build a standalone ConvLSTM model-comparison dashboard from JSON reports."""
 from __future__ import annotations
 
 import argparse
@@ -50,7 +50,7 @@ function drawLines(state,metric,target){const months=['6','7','8','9'],names=['J
 function drawContext(state,metric,target,context){const active=labels.filter(x=>reports[x]),all=active.flatMap(label=>(reports[label].site_diagnostics||[]).filter(p=>p.target===target&&(state==='all'||p.context.state===state)).map(p=>p.metrics[metric]).filter(v=>Number.isFinite(v))),range=metricRange(all,metric);const traces=active.map((label,i)=>{const points=(reports[label].site_diagnostics||[]).filter(p=>p.target===target&&(state==='all'||p.context.state===state));const binKey=context+'_bin';return{type:'scatter',mode:'markers',name:label,x:points.map(p=>p.context[context]),y:points.map(p=>p.metrics[metric]),customdata:points.map(p=>[p.site_id,p.context.state,'Q'+(Number(p.context[binKey])+1),p.context[context]]),marker:{color:colors[i%colors.length],size:9,opacity:.72},hovertemplate:label+'<br>site: %{customdata[0]} (%{customdata[1]})<br>'+context+': %{customdata[3]:.6g}<br>split quartile: %{customdata[2]}<br>'+target+' '+metric+': %{y:.6g}<extra></extra>'}});const title=contextSelect.options[contextSelect.selectedIndex].text;const layout={title:target+' '+metric+' by '+title+' — pooled Jun–Sep',xaxis:{title:title,type:context==='cell_count'?'log':'linear'},yaxis:{title:metric,range:range},margin:{l:65,r:15,t:45,b:50},paper_bgcolor:'#fff',plot_bgcolor:'#fff',legend:{orientation:'h',y:-.2}};Plotly.react('contextChart',traces,layout,chartConfig)}
 function render(){const month=document.querySelector('#month').value,state=stateSelect.value,metric=document.querySelector('#metric').value,target=targetSelect.value,context=contextSelect.value;let text='<table><thead><tr><th>Model</th>'+targets.map(t=>'<th>'+t+'</th>').join('')+'</tr></thead><tbody>';for(const label of labels){const report=reports[label];text+='<tr'+(!report?' class="pending"':'')+'><td>'+label+(report?'':' — pending')+'</td>';for(const t of targets){const x=valueFor(report,month,state,t);let shown='—';if(x&&x[metric]!==undefined)shown=Number(x[metric]).toFixed(['mae','rmse','bias'].includes(metric)?4:3);text+='<td>'+shown+'</td>'}text+='</tr>'}document.querySelector('#comparison').innerHTML=text+'</tbody></table>';let cards='';for(const label of labels){const r=reports[label];cards+='<div class="card"><strong>'+label+'</strong><br>'+(!r?'<span class="pending">Awaiting validation report</span>':'Report loaded: '+Object.keys(r.by_month||{}).length+' months, '+states.length+' states')+'</div>'}document.querySelector('#cards').innerHTML=cards;drawBars(month,state,metric,target);drawLines(state,metric,target);drawContext(state,metric,target,context)}
 document.querySelectorAll('select').forEach(x=>x.addEventListener('change',render));addEventListener('resize',render);render();</script></body></html>"""
-    template = template.replace("ECH2O fixed-window recurrent model comparison", "ECH2O recurrent model comparison")
+    template = template.replace("ECH2O fixed-window recurrent model comparison", "ECH2O ConvLSTM model comparison")
     template = template.replace(
         "</style></head>",
         ".nav{display:flex;gap:10px;flex-wrap:wrap;padding:12px 0 22px;border-bottom:1px solid #d7dee5;margin-bottom:26px}.nav a{color:#17212b;text-decoration:none;padding:7px 11px;border-radius:999px;background:#edf2f7;font-weight:650}.nav a.active,.nav a:hover{background:#1769aa;color:#fff}.best{font-weight:800;background:#e8f5ee!important;color:#0b5d3b}</style></head>",
@@ -73,7 +73,7 @@ document.querySelectorAll('select').forEach(x=>x.addEventListener('change',rende
     )
     template = template.replace(
         "Pixel-weighted spatial-validation metrics. Select a month and state to compare identical targets across completed models. Pending models are intentionally blank rather than inferred.",
-        "Pixel-weighted spatial-validation metrics. Fixed-window reports use the full 75/25 split; full-water-year BPTT reports use its continuity-valid 290-train / 97-validation subset. Select a month and state to compare targets within a common protocol.",
+        "Pixel-weighted spatial-validation metrics. Fixed 30-, 60-, and 90-day ConvLSTMs use the same 343-train / 114-validation split. Full-BPTT replays the same cohort from Jan. 1 through Sep. 30; compare it as the long-memory protocol.",
     )
     page = (template.replace("__PAYLOAD__", payload)
             .replace("__LABELS__", label_json)

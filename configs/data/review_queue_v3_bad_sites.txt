@@ -1,0 +1,4 @@
+# Visual review of full_source_jan_sep_training_qa_corrected_v3/review_queue_rgb.
+# Every reviewed site not listed here is approved for the full-bbox cohort.
+WA4885512041420170723
+WA4770812082320140715

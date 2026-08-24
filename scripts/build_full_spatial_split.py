@@ -37,6 +37,20 @@ def daily_screen(daily_dir: Path, site_id: str) -> Path:
     return matches[0]
 
 
+def qa_eligible_sites(path: Path, require_forcing_clean: bool) -> tuple[set[str], list[dict[str, str]]]:
+    """Read the resolved pre-split QA decision table without inferring eligibility."""
+    with path.open(newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    eligible = {
+        row["site_id"] for row in rows
+        if row["training_site_status"] == "include_candidate"
+        and (not require_forcing_clean or row.get("forcing_daily_status") == "forcing_clean")
+    }
+    if not eligible:
+        raise ValueError("QA decision table yielded no eligible sites")
+    return eligible, rows
+
+
 def sequence_rows(site_id: str, daily_dir: Path, data_root: Path, months: set[int], length: int) -> list[dict[str, object]]:
     with daily_screen(daily_dir, site_id).open(newline="") as handle:
         daily = list(csv.DictReader(handle))
@@ -184,6 +198,8 @@ def read_covariate_cache(path: Path) -> dict[str, dict]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--daily-dir", type=Path, required=True)
+    parser.add_argument("--training-qa-site-decisions", type=Path, required=True,
+                        help="Resolved QA site decisions; only include_candidate rows can enter the split.")
     parser.add_argument("--data-root", type=Path, default=configured_data_root(), help="Raw input root; defaults to ECH2O_DATA_ROOT.")
     parser.add_argument("--external-manifest", type=Path, required=True)
     parser.add_argument("--output-dir", type=Path, required=True)
@@ -192,6 +208,8 @@ def main() -> None:
     parser.add_argument("--sequence-length", type=int, default=30)
     parser.add_argument("--strata-bins", type=int, default=4)
     parser.add_argument("--seed", type=int, default=20260803)
+    parser.add_argument("--allow-forcing-day-masks", action="store_true",
+                        help="Permit include-candidate sites with forcing-day/bbox breaks. Off by default for contiguous recurrent baselines.")
     args = parser.parse_args()
     if args.data_root is None:
         parser.error("set ECH2O_DATA_ROOT or pass --data-root")
@@ -200,8 +218,10 @@ def main() -> None:
 
     with args.external_manifest.open(newline="") as handle:
         external_sites = {row["site_id"] for row in csv.DictReader(handle)}
+    qa_sites, qa_rows = qa_eligible_sites(args.training_qa_site_decisions, not args.allow_forcing_day_masks)
     all_sites = sorted(path.name.split("_")[0] for path in args.daily_dir.glob("*_daily_screen.csv"))
-    site_rows = {site: sequence_rows(site, args.daily_dir, args.data_root, set(args.months), args.sequence_length) for site in all_sites if site not in external_sites}
+    selected_sites = set(all_sites) & qa_sites - external_sites
+    site_rows = {site: sequence_rows(site, args.daily_dir, args.data_root, set(args.months), args.sequence_length) for site in sorted(selected_sites)}
     site_rows = {site: rows for site, rows in site_rows.items() if rows}
     args.output_dir.mkdir(parents=True, exist_ok=True)
     cache_path = args.output_dir / "site_covariates_cache.csv"
@@ -232,6 +252,12 @@ def main() -> None:
     summary = {
         "purpose": "site-level 75/25 state-and-covariate-balanced spatial validation split",
         "months": args.months, "sequence_length": args.sequence_length, "seed": args.seed,
+        "training_qa_site_decisions": str(args.training_qa_site_decisions),
+        "require_forcing_clean": not args.allow_forcing_day_masks,
+        "qa_site_status_counts": dict(sorted(Counter(row["training_site_status"] for row in qa_rows).items())),
+        "qa_eligible_sites_before_external_holdout": len(qa_sites),
+        "qa_eligible_sites_removed_as_external": sorted(qa_sites & external_sites),
+        "qa_eligible_sites_with_daily_screens": len(selected_sites),
         "external_test_sites_excluded": sorted(external_sites),
         "eligible_non_external_sites": len(records), "requested_validation_fraction": args.validation_fraction,
         "train": partition_summary(records, "dev_train"), "spatial_validation": partition_summary(records, "dev_spatial_val"),

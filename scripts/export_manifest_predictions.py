@@ -11,6 +11,7 @@ import argparse
 import json
 import sys
 from collections import defaultdict
+from datetime import date
 from pathlib import Path
 
 if __package__ in {None, ""}:
@@ -54,12 +55,18 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--split", default="dev_spatial_test", help="Manifest split to export (default: dev_spatial_test).")
     parser.add_argument("--month", type=int, default=None, help="Only target dates in this calendar month.")
+    parser.add_argument("--target-date", default=None, help="Exact ISO target date; takes precedence over --month.")
     parser.add_argument("--max-days-per-site", type=int, default=1, help="Export at most this many chronological dates per site; 0 means all.")
     parser.add_argument("--site-id", action="append", default=None, help="Optional site ID filter; repeat for several sites.")
     args = parser.parse_args()
 
     if args.month is not None and not 1 <= args.month <= 12:
         parser.error("--month must be in 1..12")
+    if args.target_date is not None:
+        try:
+            date.fromisoformat(args.target_date)
+        except ValueError as error:
+            parser.error(f"--target-date must be ISO YYYY-MM-DD: {error}")
     if args.max_days_per_site < 0:
         parser.error("--max-days-per-site must be non-negative")
 
@@ -70,6 +77,8 @@ def main() -> None:
     per_site = defaultdict(int)
     for index, row in enumerate(dataset.rows):
         if allowed_sites is not None and row["site_id"] not in allowed_sites:
+            continue
+        if args.target_date is not None and row["target_date"] != args.target_date:
             continue
         if args.month is not None and int(row["target_date"][5:7]) != args.month:
             continue

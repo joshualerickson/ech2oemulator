@@ -1,6 +1,6 @@
 # ECH2O Scorched Earth
 
-Reproducible CPU- and CUDA-capable ConvGRU and ConvLSTM experiments for daily,
+Reproducible CPU- and CUDA-capable ConvLSTM experiments for daily,
 full-resolution ECH2O bbox outputs. The fixed-window baseline consumes ordered
 daily forcing rasters and 13 static covariates, then predicts soil moisture,
 AM/PM skin temperature, and AM/PM PLC at the target grid's native resolution.
@@ -92,8 +92,11 @@ contract and audit the usable **January--September** overlap.
 
 6. **Create split-ready decisions.** Combine source-contract status, target
    artifact triage, and daily forcing QA into site- and target-level decision
-   tables. Resolve the review queue before constructing the persisted spatial
-   split; fit normalization only after that split is frozen.
+   tables. A target whose corner-jump statistic is undefined for every audited
+   day has persistent missing corner support and excludes its site from the
+   full-bbox training cohort. Resolve the remaining review queue before
+   constructing the persisted spatial split; fit normalization only after that
+   split is frozen.
 
 Example, using a named QA run directory:
 
@@ -123,7 +126,9 @@ python scripts/summarize_forcing_bbox_qa.py \
 
 python scripts/build_training_qa_decisions.py \
   --schema-report "$SCHEMA" --triage "$QA_RUN/target_artifact_triage.csv" \
-  --daily-dir "$DAILY_DIR" --output-dir "$QA_RUN"
+  --daily-dir "$DAILY_DIR" \
+  --daily-artifact-audit "$QA_RUN/manifest_target_artifact_daily.csv" \
+  --output-dir "$QA_RUN"
 
 python scripts/build_training_qa_review.py \
   --site-decisions "$QA_RUN/training_qa_site_decisions.csv" \
@@ -139,11 +144,42 @@ The resulting review package contains:
 - `training_qa_target_decisions.csv`: the action for each site/target pair;
 - `training_qa_site_target_artifact_stats.csv`: per-target median, p95, and
   maximum artifact metrics for filtering and visual review;
+- `training_qa_summary.json`: final site counts, exclusion reasons, forcing-QA
+  counts, and the clean cohort ready for a spatial split;
 - `training_qa_include_candidates.csv`, `training_qa_review_sites.csv`, and
   `training_qa_exclude_sites.csv`: concise site-level worklists;
 - `target_artifact_candidate_days.csv`: complete target-index/date timelines;
 - `forcing_bbox_qa_summary.csv`: Jan--Sep forcing completeness, edge-NA
   diagnostics, and longest clean contiguous run.
+
+For visual calibration of the Tskin seam policy, export RGB previews only for
+site/target pairs whose median row or column seam ratio exceeds 4. RGB maps
+the day before, selected worst-seam day, and day after to red, green, and blue;
+`tskin_seam_review_index.csv` records the exact bands and dates.
+
+```bash
+python scripts/export_tskin_seam_review_rgb.py \
+  --site-target-stats "$QA_RUN/training_qa_site_target_artifact_stats.csv" \
+  --daily-artifact-audit "$QA_RUN/manifest_target_artifact_daily.csv" \
+  --data-root "$ECH2O_DATA_ROOT" \
+  --output-dir "$QA_RUN/tskin_seam_rgb_review"
+```
+
+To resolve the remaining artifact-review queue, create one contact sheet per
+review site. Return only the visually bad site IDs in a text file; those IDs
+can then be added as versioned manual exclusions and the QA worklists rebuilt.
+The resolved packet records an explicit keep for every reviewed site not in
+that bad-site list, so the completed manual review can release them into the
+split cohort reproducibly.
+
+```bash
+python scripts/export_review_queue_rgb.py \
+  --site-decisions "$QA_RUN/training_qa_site_decisions.csv" \
+  --triage "$QA_RUN/target_artifact_triage.csv" \
+  --daily-artifact-audit "$QA_RUN/manifest_target_artifact_daily.csv" \
+  --data-root "$ECH2O_DATA_ROOT" \
+  --output-dir "$QA_RUN/review_queue_rgb"
+```
 
 Keep the generated QA run directory with the associated source-data version;
 it is an input to splitting, not an interchangeable model artifact.
@@ -188,17 +224,20 @@ All commands run from the repository root.
    ```
 
 3. Construct a new persisted site-level split. The full split
-   keeps the external panel out of both train and validation.
+   keeps the external panel out of both train and validation. It requires the
+   resolved QA decision table; by default it uses only `include_candidate`
+   sites with an uninterrupted Jan--Sep forcing sequence.
 
    ```bash
    python scripts/build_full_spatial_split.py \
      --daily-dir artifacts/manifests/phase2_daily_v2 \
+     --training-qa-site-decisions artifacts/reports/YOUR_QA_RUN/training_qa_site_decisions.csv \
      --data-root "$ECH2O_DATA_ROOT" \
      --external-manifest artifacts/manifests/external_panel_v1/manifest.csv \
      --output-dir artifacts/manifests/full75_val25_jun_sep_v1
    ```
 
-4. Fit normalization using `dev_train` only and train the bounded ConvGRU.
+4. Fit normalization using `dev_train` only and train the bounded ConvLSTM.
 
    ```bash
    python scripts/fit_dev_normalization.py \
@@ -215,6 +254,28 @@ All commands run from the repository root.
 
 The best checkpoint is selected strictly by the site-disjoint validation loss;
 the external panel is reserved for final testing and GeoTIFF export.
+
+### Current corrected-v3 clean cohort
+
+The resolved calendar-aware QA run produces a strict clean recurrent cohort
+before the spatial split: `include_candidate` plus `forcing_clean`, with the
+external panel held aside. The persisted v3 manifests use the same 343/114
+train/validation site assignment for every temporal protocol:
+
+```text
+artifacts/manifests/full75_val25_calendar_v3_clean_seq30/       # 55,736 June--Sep windows
+artifacts/manifests/full75_val25_calendar_v3_clean_seq60/       # same sites/split, 60-day history
+artifacts/manifests/full75_val25_calendar_v3_clean_seq90/       # same sites/split, 90-day history
+artifacts/manifests/full75_val25_calendar_v3_jan_sep_stateful/  # 457 Jan--Sep site replays
+```
+
+Fit a new train-only normalization before any corrected-v3 fixed-window run:
+
+```bash
+python scripts/fit_dev_normalization.py \
+  --manifest artifacts/manifests/full75_val25_calendar_v3_clean_seq30/manifest.csv \
+  --output artifacts/normalization/full75_val25_calendar_v3_clean_seq30.json
+```
 
 ### CPU or GPU runtime
 
@@ -248,17 +309,15 @@ If this reports `False`, install a CUDA-enabled PyTorch build appropriate for
 the target machine; the CPU-only environment on Odin will correctly remain on
 CPU. The water-year trainer supports the identical `--device cuda` option.
 
-## Fixed-window model selection
+## Fixed-window ConvLSTM model selection
 
-The next controlled experiment compares 30-, 60-, and 90-day ConvGRU and
-ConvLSTM models on the same persisted 75/25 spatial split.  The exact matrix,
+The current controlled experiment compares 30-, 60-, and 90-day ConvLSTM
+models on the same persisted 75/25 spatial split. The exact matrix,
 selection rule, report contents, and commands are documented in
 [the fixed-window model-selection plan](docs/fixed_window_model_selection_plan.md).
 
-### ConvGRU versus ConvLSTM
-
-Use the same manifest, normalization artifact, batch size, validation split,
-and seed for a controlled recurrent-cell comparison. The fixed-window LSTM
+Use the same split, batch size, validation protocol, and seed for each
+lookback comparison. The fixed-window LSTM
 starts with a zero state at the beginning of every independently evaluated
 30/60/90-day sequence; its gates decide which information to retain *within*
 that declared lookback. It must never carry a hidden state between shuffled
@@ -302,25 +361,24 @@ the other two controlled continuations. `--early-stopping-patience 8` means
 eight consecutive validation epochs without at least `0.0005` improvement in
 normalized validation Huber loss; set it to `0` to disable the cap.
 
-### Stateful Jan--September ConvGRU and ConvLSTM
+### Stateful Jan--September ConvLSTM
 
 The stateful experiment starts on January 1 and carries the recurrent state
 through September 30 of the water-year end calendar year. It resets only at a
-site/water-year boundary. For LSTM,
-that state is the hidden state plus cell state; for GRU, it is the hidden state.
+site/water-year boundary. For LSTM, that state is the hidden state plus cell state.
 `--full-bptt` keeps the full Jan--Sep graph connected and performs one optimizer
 update per site-year. Without it, the state is still carried forward but its
 gradient is detached at each `--chunk-days` boundary (stateful TBPTT).
 
-| Temporal protocol | ConvGRU | ConvLSTM |
-| --- | --- | --- |
-| Fixed 30 / 60 / 90 days | supported | supported |
-| Stateful Jan--Sep (TBPTT) | supported | supported |
-| Full Jan--Sep BPTT | supported | supported |
+| Temporal protocol | ConvLSTM |
+| --- | --- |
+| Fixed 30 / 60 / 90 days | supported |
+| Stateful Jan--Sep (TBPTT) | supported |
+| Full Jan--Sep BPTT | supported |
 
-This makes the fair long-memory experiment explicit: use the same Jan--Sep
-manifest, normalization, chunk size, seed, loss months, and BPTT mode; vary
-only `--recurrent-cell`.
+For a fair long-memory comparison, use the same Jan--Sep manifest,
+normalization, seed, loss months, and validation cohort; vary only the
+fixed lookback versus the stateful full-BPTT protocol.
 
 ```bash
 python scripts/train_water_year_recurrent.py \
@@ -336,21 +394,8 @@ forward/backward pass per site-year. A positive `--chunk-days` only controls
 the implementation loop in full-BPTT mode; it does not detach the recurrent
 state or truncate gradients.
 
-Run the matched ConvGRU experiment by changing only the recurrent-cell flag and
-checkpoint name:
-
-```bash
-python scripts/train_water_year_recurrent.py \
-  --manifest artifacts/manifests/lstm10_water_year_v1/manifest.csv \
-  --normalization artifacts/normalization/lstm10_water_year_v1.json \
-  --checkpoint artifacts/checkpoints/gru10_water_year_full_bptt_cpu.pt \
-  --epochs 100 --chunk-days 0 --full-bptt --threads 32 \
-  --recurrent-cell gru
-```
-
-For the stateful-TBPTT comparison, omit `--full-bptt` from both commands. The
-same prediction script replays either checkpoint: model metadata chooses the
-GRU or LSTM cell automatically.
+For the stateful-TBPTT comparison, omit `--full-bptt`. Model metadata records
+the LSTM architecture and is used automatically by the prediction scripts.
 
 #### Continuing a water-year run
 

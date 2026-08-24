@@ -2,3 +2,22 @@ site_id,target,override_action,reason,reviewer_note
 MT4726811348520170724,*,exclude_site_all_targets,blocky messed-up artifacts,Manual visual QA decision
 UT3993711177920200906,*,exclude_site_all_targets,blocky messed-up artifacts,Manual visual QA decision
 CA3399211696420200731,*,keep_site_all_targets,natural Los Angeles basin-to-mountain thermal gradient,Large-area terrain/climate signal; retain despite automated seam flag
+CA3329911746620140515,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3425911746120160816,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3442911910020171205,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3451712013120211011,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3453012005420160615,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3472012055020160918,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3646112190120160722,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3851511946520201117,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3856811956820200830,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3862811985720210704,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3966012280920200817,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA3982012144020181108,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA4042112086320200718,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA4145912232920210625,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+CA4150012192920210801,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+MT4896011593020180729,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+OR4229712395420170712,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+UT3980611166020180906,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt
+UT3987211174320180824,*,exclude_site_all_targets,reviewed Tskin seam RGB artifact,Excluded from v3 RGB review set; not in keep_reviewed_v3.txt

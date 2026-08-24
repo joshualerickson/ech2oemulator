@@ -21,6 +21,25 @@ def read_csv(path: Path) -> list[dict[str, str]]:
         return list(csv.DictReader(handle))
 
 
+def targets_with_missing_corner_median(path: Path | None) -> dict[str, list[str]]:
+    """Return targets whose corner-jump statistic is undefined for every day.
+
+    This is distinct from a large corner jump: an absent median means that no
+    valid corner-to-interior comparison exists across the audited period.  It
+    is a persistent target-support failure for full-bbox training.
+    """
+    if path is None:
+        return {}
+    values: dict[tuple[str, str], list[str]] = defaultdict(list)
+    for row in read_csv(path):
+        values[(row["site_id"], row["target"])].append(row.get("corner_jump_ratio", ""))
+    flagged: dict[str, list[str]] = defaultdict(list)
+    for (site_id, target), scores in values.items():
+        if scores and not any(value not in {"", None} for value in scores):
+            flagged[site_id].append(target)
+    return {site_id: sorted(targets) for site_id, targets in flagged.items()}
+
+
 def forcing_summary(daily_dir: Path | None, site_id: str) -> dict[str, int | str]:
     if daily_dir is None:
         return {"forcing_daily_status": "pending_daily_forcing_qa", "jan_sep_forcing_unavailable_days": 0, "jan_sep_forcing_invalid_days": 0, "jan_sep_forcing_edge_issue_days": 0}
@@ -40,6 +59,7 @@ def main() -> None:
     parser.add_argument("--schema-report", type=Path, required=True)
     parser.add_argument("--triage", type=Path, required=True)
     parser.add_argument("--daily-dir", type=Path, default=None, help="Optional v2 daily screens; adds Jan--Sep forcing QA counts to the site CSV.")
+    parser.add_argument("--daily-artifact-audit", type=Path, default=None, help="Raw daily artifact audit; sites with an undefined per-target corner-jump median are excluded for full-bbox training.")
     parser.add_argument("--output-dir", type=Path, required=True)
     args = parser.parse_args()
     schema = json.loads(args.schema_report.read_text())
@@ -47,6 +67,7 @@ def main() -> None:
     by_site: dict[str, list[dict[str, str]]] = defaultdict(list)
     for row in triage:
         by_site[row["site_id"]].append(row)
+    missing_corner_targets = targets_with_missing_corner_median(args.daily_artifact_audit)
 
     site_rows = []
     target_rows = []
@@ -54,8 +75,11 @@ def main() -> None:
         site_id = source["site_id"]
         issues = source.get("issues", [])
         target_decisions = by_site.get(site_id, [])
+        corner_targets = missing_corner_targets.get(site_id, [])
         if issues:
             status, reason = "exclude_source_contract", "; ".join(issues)
+        elif corner_targets:
+            status, reason = "exclude_target_corner_support_missing", f"undefined corner_jump_ratio median for: {', '.join(corner_targets)}"
         elif any(row["action"] == "exclude_manual" for row in target_decisions):
             status, reason = "exclude_manual", "reviewed manual whole-site exclusion"
         elif any(row["action"] == "exclude_candidate_persistent_tskin" for row in target_decisions):
@@ -75,14 +99,21 @@ def main() -> None:
             "source_contract_issues": ";".join(issues),
             "target_rows": len(target_decisions),
             "target_actions": ";".join(sorted({row["action"] for row in target_decisions})),
+            "targets_with_missing_corner_jump_median": ";".join(corner_targets),
             **forcing,
         })
         for row in target_decisions:
+            effective_status = (
+                status if status.startswith("exclude") or status == "include_candidate"
+                else row["action"]
+            )
             target_rows.append({
                 "site_id": site_id,
                 "water_year_end": source.get("water_year_end", ""),
                 "target": row["target"],
                 "target_training_status": row["action"],
+                "effective_full_bbox_training_status": effective_status,
+                "effective_full_bbox_training_reason": reason if effective_status == status else row["reason"],
                 "reason": row["reason"],
                 "automated_action": row["automated_action"],
                 "manual_override_action": row["manual_override_action"],
