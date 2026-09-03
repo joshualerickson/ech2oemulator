@@ -71,10 +71,10 @@ Daily forcing rasters currently include:
 
 - precipitation;
 - shortwave radiation (`srad`);
-- minimum temperature;
-- maximum temperature;
-- minimum relative humidity;
-- maximum relative humidity.
+- minimum temperature (`tmin`);
+- maximum temperature (`tmax`);
+- minimum relative humidity (`rmin`);
+- maximum relative humidity (`rmax`).
 
 These forcings are spatially varying rasters, not bbox-level scalar values.
 

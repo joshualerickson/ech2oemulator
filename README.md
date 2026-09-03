@@ -277,6 +277,84 @@ python scripts/fit_dev_normalization.py \
   --output artifacts/normalization/full75_val25_calendar_v3_clean_seq30.json
 ```
 
+### Final deployment ConvLSTM (all QA-approved sites)
+
+After model selection is complete, build a separate final-fit manifest that
+combines the selected 343/114 cohort and the six previously external sites.
+This produces the 463-site QA-approved Seq90 deployment cohort. It deliberately
+uses one `final_fit_train` split: the validation and external metrics remain in
+their original immutable artifacts and must not be recomputed from this final
+fit.
+
+The selected fixed-window model is the corrected calendar-aligned 90-day
+ConvLSTM. Its best spatial-validation epoch was 33, so the final fit uses 33
+epochs without early stopping (there is no untouched validation set left).
+
+```bash
+python scripts/build_final_fit_manifest.py \
+  --selected-manifest artifacts/manifests/full75_val25_calendar_v3_clean_seq90/manifest.csv \
+  --external-manifest artifacts/manifests/external_panel_calendar_v3_seq90/manifest.csv \
+  --output-dir artifacts/manifests/final_all463_calendar_v3_seq90
+
+python scripts/fit_dev_normalization.py \
+  --manifest artifacts/manifests/final_all463_calendar_v3_seq90/manifest.csv \
+  --split final_fit_train \
+  --output artifacts/normalization/final_all463_calendar_v3_seq90.json
+
+python scripts/train_dev_cpu.py \
+  --manifest artifacts/manifests/final_all463_calendar_v3_seq90/manifest.csv \
+  --normalization artifacts/normalization/final_all463_calendar_v3_seq90.json \
+  --checkpoint artifacts/checkpoints/final_all463_calendar_v3_seq90_lstm_e33.pt \
+  --epochs 33 --batch-size 16 --threads 32 --interop-threads 1 \
+  --seed 20260803 --device auto --recurrent-cell lstm --enforce-physical-bounds \
+  --train-split final_fit_train
+```
+
+On a GPU host, retain the same manifest, normalization, seed, and epoch count;
+only tune `--batch-size`, `--threads`, and `--device` after a small throughput
+test. The final checkpoint is a deployment artifact, not an evaluation result.
+
+### Fire-area Seq90 prediction
+
+`scripts/predict_fire_seq90.py` is a target-free inference entry point for the
+MTBS-style folders. It reads only the six daily forcing stacks and the exact
+13 trained static channels (including `lai.asc` and `vcf.asc`, never the
+post-fire alternatives). It writes one five-band, EPSG:5070 GeoTIFF per
+fire/day, with this fixed band order: `soilmoisture`, `tskin_am`, `tskin_pm`,
+`plc_am`, `plc_pm`.
+
+The forcing-band descriptions are the date authority. Before predicting, audit
+the incoming folders:
+
+```bash
+python scripts/inspect_fire_input_schema.py \
+  --input-root /mnt/alpheus1/zholden/ech2o_projects/ech2o_ai_inputs_mtbs/ech2o_outputs_240 \
+  --output artifacts/schema_reports/mtbs_fire_inputs.json
+```
+
+The selected final model is trained for June--September target days with a
+90-day forcing history. Therefore a full seasonal run requires continuous
+forcing bands from **March 4 through September 30** of each fire year. The
+current `ech2o_outputs_240` folders contain only October 1--December 31 bands;
+the predictor intentionally rejects them rather than treating them as January
+dates or extrapolating the June--September model to an untrained season.
+
+Once the daily stacks contain the required date range, run:
+
+```bash
+python scripts/predict_fire_seq90.py \
+  --input-root /mnt/alpheus1/zholden/ech2o_projects/ech2o_ai_inputs_mtbs/ech2o_outputs_240 \
+  --checkpoint artifacts/checkpoints/final_all463_calendar_v3_seq90_lstm_e33.pt \
+  --normalization artifacts/normalization/final_all463_calendar_v3_seq90.json \
+  --output-dir artifacts/predictions/final_all463_seq90_mtbs \
+  --start-date 2021-06-01 --end-date 2021-09-30 \
+  --device auto
+```
+
+Use `--site-id FIRE_ID` to run a single fire first. The command writes
+`run_metadata.json` beside the per-site GeoTIFF folders and masks cells with
+non-finite static or forcing support.
+
 ### CPU or GPU runtime
 
 All main training commands accept `--device auto|cpu|cuda|cuda:N`. `auto` is
@@ -500,6 +578,44 @@ Repeat with `--batch-size 2`, `4`, `8`, or `16` and compare the reported
 `samples_per_second`. Do not assume that all available CPU cores are fastest;
 test a few `--threads` values. Omit `--benchmark-batches` for a full run and
 use the selected `--batch-size`, `--threads`, and `--interop-threads` values.
+
+## Parallel 30 m fire prediction
+
+The direct 30 m predictor retains the exact fixed Seq90 protocol: recurrent
+state starts from zero and all 90 chronological forcing days are evaluated for
+each output date. `spline_30m` and `static_guided_30m` are available as
+explicit comparison products. Select the production method only after a
+head-to-head review; no method is assumed to be scientifically preferred by
+the launcher.
+
+The NetCDF time coordinate follows the established 240 m contract: raw values
+are `0, 1, 2, ...`, `calendar` is `proleptic_gregorian`, and `units` is
+`days since <first-prediction-date> 00:00:00`. Do not replace this with a fixed
+Unix-epoch origin because some GIS clients display the raw offsets.
+
+On the 128-logical-CPU Odin host, use 12 independent fire workers, 10 PyTorch
+threads per worker, and three concurrent forcing-channel warps with two GDAL
+threads each. The large/small interleaved queue and incremental output keep the
+1 TB memory budget comfortable:
+
+```bash
+PYTHONDONTWRITEBYTECODE=1 /home/josh.erickson/miniconda3/envs/echo/bin/python -u \
+  scripts/run_30m_prediction_parallel.py \
+  --input-root /mnt/nvmeDrive/data/ech2o_projects/ech2o_ai_worker_inputs_240 \
+  --native-static-root /mnt/nvmeDrive/data/ech2o_projects/ech2o_ai_static_30m \
+  --eligible-240m-dir /mnt/alpheus1/zholden/ech2o_projects/ech2o_ai_inputs_mtbs/ech2o_ai_predict \
+  --output-dir /mnt/nvmeDrive/data/ech2o_projects/ech2o_ai_predict_30m \
+  --checkpoint artifacts/checkpoints/final_all463_calendar_v3_seq90_lstm_e33.pt \
+  --normalization artifacts/normalization/final_all463_calendar_v3_seq90.json \
+  --viirs-date-csv /mnt/alpheus1/zholden/ech2o_projects/ech2o_mtbs/viirs_modis_mtbs_fires_061826.csv \
+  --run-dir artifacts/predictions/final_all463_seq90_direct30m_parallel_optimized \
+  --workers 12 --threads-per-worker 10 \
+  --forcing-channel-workers 3 --reproject-threads-per-worker 2 \
+  --date-buffer-days 5 --methods direct_30m --device cpu --progress-every 1
+```
+
+The launcher is resumable: valid NetCDFs already present in `--output-dir`
+are skipped unless `--overwrite` is supplied.
 
 ## Repository layout
 
