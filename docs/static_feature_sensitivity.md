@@ -84,3 +84,29 @@ Build the page after a completed joint run:
   scripts/publish_dashboard_site.py \
   --reports-dir artifacts/reports --site-dir site
 ```
+
+## Recommended interpretation run
+
+Use 256 site/date contexts (64 per June--September month) for a more stable
+seasonal interpretation. The joint runner assigns sites across their dominant
+global climatic-water-deficit × elevation quartiles before selecting a date, so
+the panel is not solely a random collection of bboxes.
+
+```bash
+/home/josh.erickson/miniconda3/envs/echo/bin/python \
+  scripts/explore_joint_canopy_sensitivity.py \
+  --manifest artifacts/manifests/final_all463_calendar_v3_seq90/manifest.csv \
+  --split final_fit_train \
+  --checkpoint artifacts/checkpoints/final_all463_calendar_v3_seq90_lstm_e33.pt \
+  --normalization artifacts/normalization/final_all463_calendar_v3_seq90.json \
+  --strata-json artifacts/feature_exploration/final_all463_static_strata.json \
+  --output-dir artifacts/feature_exploration/joint_vcf_lai_256_dem_wbdef_stratified \
+  --max-samples 256 --sampling dem_wbdef_stratified \
+  --seed 20260910 --threads 24 --device cpu
+```
+
+The dashboard's **Support behind the bars** table reports, for each displayed
+month and stratum, the number of unique sites, contributing site/date means,
+and valid model-input pixels. Mean, median, P10, and P90 are computed over
+equal-weight site/date spatial means; pixels document spatial support and do
+not cause large bboxes to dominate the statistic.

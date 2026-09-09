@@ -38,6 +38,75 @@ def quartile_labels(values: np.ndarray, thresholds: dict[str, float]) -> np.ndar
     return np.digitize(values, edges, right=True) + 1
 
 
+def select_stratified_indices(
+    dataset: SequenceDataset, maximum: int, seed: int, strata: dict[str, dict[str, float]]
+) -> list[int]:
+    """Balance month coverage and spread sites across dominant DEM × CWD regimes.
+
+    A site can contain several pixel quartiles.  Its modal valid-pixel DEM and
+    CWD labels are used only to select a geographically diverse site/date panel;
+    the later response summaries retain every pixel quartile present in that
+    bbox.  Sites are used once before any site is revisited.
+    """
+    rng = np.random.default_rng(seed)
+    rows_by_site_month: dict[tuple[str, int], list[int]] = defaultdict(list)
+    site_rows: dict[str, dict[str, str]] = {}
+    for index, row in enumerate(dataset.rows):
+        rows_by_site_month[(row["site_id"], int(row["target_date"][5:7]))].append(index)
+        site_rows.setdefault(row["site_id"], row)
+    groups: dict[tuple[int, int], list[str]] = defaultdict(list)
+    for site_id, row in site_rows.items():
+        stack = dataset._static(row).numpy()
+        dem = stack[STATIC_CHANNELS.index("dem")]
+        wbdef = stack[STATIC_CHANNELS.index("wbdef")]
+        valid = np.isfinite(stack).all(axis=0) & np.isfinite(dem) & np.isfinite(wbdef)
+        if not valid.any():
+            continue
+        dem_labels = quartile_labels(dem, strata["dem"])
+        cwd_labels = quartile_labels(wbdef, strata["wbdef"])
+        # Each mode is a 1--4 global training-pixel quartile label.
+        dem_mode = int(np.bincount(dem_labels[valid], minlength=5)[1:].argmax() + 1)
+        cwd_mode = int(np.bincount(cwd_labels[valid], minlength=5)[1:].argmax() + 1)
+        groups[(cwd_mode, dem_mode)].append(site_id)
+    for sites in groups.values():
+        rng.shuffle(sites)
+    group_keys = list(groups)
+    rng.shuffle(group_keys)
+    selected: list[int] = []
+    used_sites: set[str] = set()
+    months = (6, 7, 8, 9)
+    quota, remainder = divmod(maximum, len(months))
+    for month_number, month in enumerate(months):
+        wanted = quota + (month_number < remainder)
+        # Repeatedly visit every occupied joint regime, selecting an unused site
+        # with a valid target date in this month.
+        while sum(int(dataset.rows[index]["target_date"][5:7]) == month for index in selected) < wanted:
+            added = False
+            for group in group_keys:
+                candidates = [site for site in groups[group] if site not in used_sites and rows_by_site_month[(site, month)]]
+                if not candidates:
+                    continue
+                site = candidates[0]
+                choices = rows_by_site_month[(site, month)]
+                selected.append(choices[int(rng.integers(len(choices)))])
+                used_sites.add(site)
+                added = True
+                if sum(int(dataset.rows[index]["target_date"][5:7]) == month for index in selected) == wanted:
+                    break
+            if not added:
+                break
+    if len(selected) < maximum:
+        # Preserve a requested sample count even if a sparse regime has fewer
+        # unique sites than the monthly quota; only now permit site revisits.
+        fallback = select_indices(dataset, maximum * 2, seed)
+        for index in fallback:
+            if len(selected) == maximum:
+                break
+            if index not in selected:
+                selected.append(index)
+    return selected[:maximum]
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--manifest", type=Path, required=True)
@@ -48,6 +117,7 @@ def main() -> None:
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--max-samples", type=int, default=64)
     parser.add_argument("--seed", type=int, default=20260909)
+    parser.add_argument("--sampling", choices=("month_balanced", "dem_wbdef_stratified"), default="dem_wbdef_stratified")
     parser.add_argument("--threads", type=int, default=24)
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
@@ -61,7 +131,9 @@ def main() -> None:
     if set(required_strata).difference(strata):
         parser.error(f"strata-json must include {required_strata}")
     dataset = SequenceDataset(args.manifest, args.split, cache_site_arrays=True)
-    indices = select_indices(dataset, args.max_samples, args.seed)
+    indices = (select_stratified_indices(dataset, args.max_samples, args.seed, strata)
+               if args.sampling == "dem_wbdef_stratified"
+               else select_indices(dataset, args.max_samples, args.seed))
     checkpoint = torch.load(args.checkpoint, map_location="cpu", weights_only=False)
     device = resolve_device(args.device)
     model = model_from_checkpoint(checkpoint).to(device)
@@ -124,7 +196,7 @@ def main() -> None:
     summary_path = args.output_dir / "joint_canopy_summary.csv"
     with summary_path.open("w", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=list(summary[0])); writer.writeheader(); writer.writerows(summary)
-    (args.output_dir / "run.json").write_text(json.dumps({"scenarios": SCENARIOS, "samples": len(indices), "seed": args.seed,
+    (args.output_dir / "run.json").write_text(json.dumps({"scenarios": SCENARIOS, "samples": len(indices), "seed": args.seed, "sampling": args.sampling,
         "interpretation": "Model counterfactual sensitivity, not a causal canopy treatment effect. Cross scenarios may be off the observed VCF--LAI correlation manifold."}, indent=2) + "\n")
     print({"status": "complete", "samples": len(indices), "per_sample": str(per_sample), "summary": str(summary_path)})
 
