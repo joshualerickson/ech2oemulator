@@ -512,6 +512,7 @@ pixels in fixed elevation, TPI, TWI, and climatic-water-deficit quartiles.
 python scripts/build_model_comparison_html.py ...
 python scripts/build_pixel_strata_html.py ...
 python scripts/build_pixel_joint_heatmap_html.py ...
+python scripts/build_static_sensitivity_html.py ...
 python scripts/publish_dashboard_site.py --reports-dir artifacts/reports --site-dir site
 python -m http.server 8080 --directory site
 ```
@@ -520,6 +521,11 @@ The generated `site/` directory is intentionally ignored by Git. It contains
 only the HTML reports selected for the homelab deployment; source data,
 checkpoints, GeoTIFFs, and other artifacts remain private. See
 [homelab deployment notes](docs/homelab_dashboard.md).
+
+The canopy-sensitivity dashboard is documented in
+[static feature sensitivity](docs/static_feature_sensitivity.md). It presents
+pixel-level, coupled and mixed VCF--LAI model-response diagnostics; these are
+conditional emulator responses, not causal vegetation-treatment estimates.
 
 ### Metric interpretation
 

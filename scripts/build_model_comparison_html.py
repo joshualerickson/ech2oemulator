@@ -57,7 +57,7 @@ document.querySelectorAll('select').forEach(x=>x.addEventListener('change',rende
     )
     template = template.replace(
         "<body><h1>",
-        "<body><nav class=\"nav\"><a href=\"index.html\">Overview</a><a class=\"active\" href=\"fixed_window_model_comparison.html\">Model comparison</a><a href=\"pixel_strata_explorer.html\">Terrain & climate strata</a><a href=\"pixel_joint_heatmap.html\">Deficit × TPI</a></nav><h1>",
+        "<body><nav class=\"nav\"><a href=\"index.html\">Overview</a><a class=\"active\" href=\"fixed_window_model_comparison.html\">Model comparison</a><a href=\"pixel_strata_explorer.html\">Terrain & climate strata</a><a href=\"pixel_joint_heatmap.html\">Deficit × TPI</a><a href=\"static_feature_sensitivity.html\">Canopy sensitivity</a></nav><h1>",
     )
     template = template.replace(
         "function render(){const month=",

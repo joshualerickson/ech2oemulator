@@ -29,7 +29,7 @@ def main() -> None:
     template = template.replace("q.count?q[metric]:null", "q.count?q[metric.value]:null")
     template = template.replace(
         "</style><body>",
-        ".nav{display:flex;gap:10px;flex-wrap:wrap;padding:0 0 22px;border-bottom:1px solid #d7dee5;margin-bottom:26px}.nav a{color:#17212b;text-decoration:none;padding:7px 11px;border-radius:999px;background:#edf2f7;font-weight:650}.nav a.active,.nav a:hover{background:#1769aa;color:#fff}</style><body><nav class=\"nav\"><a href=\"index.html\">Overview</a><a href=\"fixed_window_model_comparison.html\">Model comparison</a><a href=\"pixel_strata_explorer.html\">Terrain & climate strata</a><a class=\"active\" href=\"pixel_joint_heatmap.html\">Deficit × TPI</a></nav>",
+        ".nav{display:flex;gap:10px;flex-wrap:wrap;padding:0 0 22px;border-bottom:1px solid #d7dee5;margin-bottom:26px}.nav a{color:#17212b;text-decoration:none;padding:7px 11px;border-radius:999px;background:#edf2f7;font-weight:650}.nav a.active,.nav a:hover{background:#1769aa;color:#fff}</style><body><nav class=\"nav\"><a href=\"index.html\">Overview</a><a href=\"fixed_window_model_comparison.html\">Model comparison</a><a href=\"pixel_strata_explorer.html\">Terrain & climate strata</a><a class=\"active\" href=\"pixel_joint_heatmap.html\">Deficit × TPI</a><a href=\"static_feature_sensitivity.html\">Canopy sensitivity</a></nav>",
     )
     template = template.replace(
         "</p><div class=\"controls\">",
