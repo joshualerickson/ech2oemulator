@@ -20,6 +20,7 @@ from src.data.phase2_qc import DYNAMIC_CHANNELS, TARGET_CHANNELS
 from src.data.static_contract import Grid, load_selected_static_stack
 from src.data.target_qc import mask_implausible
 from src.data.temporal_contract import TEMPORAL_CONTRACT, forcing_index_for_target_date, target_index_for_date
+from src.data.target_source import read_target
 
 
 class WaterYearDataset(Dataset):
@@ -65,7 +66,7 @@ class WaterYearDataset(Dataset):
                 with rasterio.open(root / f"{name}_{water_year}.tif") as dataset:
                     dynamic.append(dataset.read(indexes=[index + 1 for index in forcing_indices], out_dtype="float32")[:, 1:-1, 1:-1])
             with xr.open_dataset(row["target_source"], engine="h5netcdf", decode_cf=False, mask_and_scale=False) as dataset:
-                targets = [np.asarray(dataset[name].isel(time=target_indices).values, dtype=np.float32) for name in TARGET_CHANNELS]
+                targets = [read_target(dataset, name, target_indices) for name in TARGET_CHANNELS]
             self.cache[site] = (dynamic, targets, daily)
 
         dynamic, targets, daily = self.cache[site]

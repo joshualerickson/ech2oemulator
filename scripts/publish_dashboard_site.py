@@ -9,6 +9,7 @@ from pathlib import Path
 
 REPORTS = (
     ("Recurrent model comparison", "fixed_window_model_comparison.html"),
+    ("Adult-response spatial validation", "adult_validation.html"),
     ("Pixel terrain and climate strata", "pixel_strata_explorer.html"),
     ("Joint climatic-deficit × TPI heatmap", "pixel_joint_heatmap.html"),
     ("Joint canopy sensitivity", "static_feature_sensitivity.html"),
@@ -27,6 +28,17 @@ def main() -> None:
         if not source.exists():
             continue
         shutil.copy2(source, args.site_dir / filename)
+        if filename != "adult_validation.html":
+            published_html = args.site_dir / filename
+            html = published_html.read_text(encoding="utf-8")
+            if 'href="adult_validation.html"' not in html:
+                old = '<a href="fixed_window_model_comparison.html">Model comparison</a>'
+                active = '<a class="active" href="fixed_window_model_comparison.html">Model comparison</a>'
+                anchor = active if active in html else old
+                if anchor not in html:
+                    raise ValueError(f"Cannot find dashboard navigation in {source}")
+                html = html.replace(anchor, anchor + '<a href="adult_validation.html">Adult validation</a>', 1)
+                published_html.write_text(html, encoding="utf-8")
         published.append((title, filename))
     if not published:
         raise FileNotFoundError(f"No expected HTML reports found in {args.reports_dir}")
@@ -35,12 +47,12 @@ def main() -> None:
         """<!doctype html><html lang="en"><meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1"><title>ECH2O emulator diagnostics</title>
 <style>body{font:16px system-ui,sans-serif;max-width:1100px;margin:32px auto;padding:0 20px;color:#17212b;line-height:1.55}a{color:#1769aa}li{margin:12px 0}.muted{color:#52616d}.note{background:#eef4f8;border-left:4px solid #1769aa;padding:12px 16px}table{border-collapse:collapse}td,th{border:1px solid #d7dee5;padding:7px 10px;text-align:left}.nav{display:flex;gap:10px;flex-wrap:wrap;padding:0 0 22px;border-bottom:1px solid #d7dee5;margin-bottom:26px}.nav a{color:#17212b;text-decoration:none;padding:7px 11px;border-radius:999px;background:#edf2f7;font-weight:650}.nav a.active,.nav a:hover{background:#1769aa;color:#fff}</style>
-<nav class="nav"><a class="active" href="index.html">Overview</a><a href="fixed_window_model_comparison.html">Model comparison</a><a href="pixel_strata_explorer.html">Terrain &amp; climate strata</a><a href="pixel_joint_heatmap.html">Deficit × TPI</a><a href="static_feature_sensitivity.html">Canopy sensitivity</a></nav><h1>ECH2O recurrent emulator diagnostics</h1>
+<nav class="nav"><a class="active" href="index.html">Overview</a><a href="fixed_window_model_comparison.html">Original model comparison</a><a href="adult_validation.html">Adult validation</a><a href="pixel_strata_explorer.html">Terrain &amp; climate strata</a><a href="pixel_joint_heatmap.html">Deficit × TPI</a><a href="static_feature_sensitivity.html">Canopy sensitivity</a></nav><h1>ECH2O recurrent emulator diagnostics</h1>
 <p class="muted">Public, static validation diagnostics for the current ConvLSTM experiments predicting daily spatial ECH2O outputs.</p>
 <h2>What is published</h2><p>Interactive summaries of pixel-level held-out validation metrics, terrain/climate error strata, and model comparisons. No raw rasters, targets, forcing inputs, site files, checkpoints, or model-ready tensors are published.</p>
 <h2>Current protocol</h2><table><tr><th>Temporal protocol</th><th>Published model</th></tr><tr><td>Fixed 30, 60, or 90-day forcing lookback</td><td>ConvLSTM</td></tr><tr><td>Stateful Jan.–Sep. full BPTT</td><td>ConvLSTM</td></tr></table>
-<div class="note"><strong>Data and comparison note.</strong> Targets use a water-year axis and daily forcings use a calendar-year axis; all modeling joins by ISO date over the shared Jan.–Sep. period. The corrected full-bbox QA retained 477 candidate sites, of which 463 have uninterrupted daily forcings; seven external sites are held out and the persisted modeling split contains 343 training and 114 spatial-validation sites. Fixed-window models share that identical split. Full-BPTT replays the same sites from Jan. 1 through Sep. 30, so it is a long-memory comparison rather than a different data cohort.</div>
-<h2>Current reading</h2><p>The dashboard shows only the current corrected-calendar ConvLSTM checkpoints. Select a month, state, target, and metric to compare fixed lookbacks directly; treat the full-BPTT result as the explicit long-memory protocol. All displayed scores are pooled over valid prediction/target pixel pairs, never random pixel samples or averages of site scores.</p>
+<div class="note"><strong>Data and comparison note.</strong> Targets use a water-year axis and daily forcings use a calendar-year axis; modeling joins by ISO date over the shared Jan.–Sep. period. The original-model comparison uses its persisted 343-training/114-spatial-validation-site split. The separate adult-response experiment has 342 training and 114 spatial-validation sites. Its revised target values require a separate results page; scores across the two response datasets are not a like-for-like model ranking.</div>
+<h2>Current reading</h2><p>The original-model comparison uses the earlier response dataset. The adult-validation page uses the revised adult ET-stress responses and its own held-out sites; do not rank those scores directly against the earlier results. Select a month, state, target, and metric within each report. All displayed scores are pooled over valid prediction/target pixel pairs, never random pixel samples or averages of site scores.</p>
 <h2>Interactive reports</h2><ul>"""
         + links
         + "</ul><p class=\"muted\">Source code, model protocol, and reproducibility documentation are maintained in the accompanying GitHub repository.</p></html>\n"

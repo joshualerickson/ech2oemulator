@@ -20,6 +20,7 @@ from src.data.temporal_contract import (
     forcing_index_for_target_date,
     target_index_for_date,
 )
+from src.data.target_source import read_target, target_time_count
 
 
 class SequenceDataset(Dataset[dict[str, Any]]):
@@ -47,7 +48,7 @@ class SequenceDataset(Dataset[dict[str, Any]]):
             directory=Path(row['dynamic_sequence_source']); dynamic=[]
             for channel in DYNAMIC_CHANNELS:
                 with rasterio.open(directory/f'{channel}_{water_year}.tif') as ds: dynamic.append(ds.read(out_dtype='float32')[:,1:-1,1:-1])
-            with xr.open_dataset(row['target_source'],engine='h5netcdf',decode_cf=False,mask_and_scale=False) as ds: targets=[np.asarray(ds[c].values,dtype=np.float32) for c in TARGET_CHANNELS]
+            with xr.open_dataset(row['target_source'],engine='h5netcdf',decode_cf=False,mask_and_scale=False) as ds: targets=[read_target(ds,c) for c in TARGET_CHANNELS]
             self._site_arrays[site]=(dynamic,targets)
         return self._site_arrays[site]
 
@@ -76,7 +77,7 @@ class SequenceDataset(Dataset[dict[str, Any]]):
         with rasterio.open(Path(row["dynamic_sequence_source"]) / f"{DYNAMIC_CHANNELS[0]}_{water_year}.tif") as reference:
             forcing_count = reference.count
         with xr.open_dataset(row["target_source"], engine="h5netcdf", decode_cf=False, mask_and_scale=False) as reference:
-            target_count = int(reference.sizes["time"])
+            target_count = target_time_count(reference, TARGET_CHANNELS[0])
         target_index = target_index_for_date(target_date, water_year, target_count)
         forcing_end_index = forcing_index_for_target_date(target_date, water_year, forcing_count)
         if target_index is None or forcing_end_index is None:
@@ -102,7 +103,7 @@ class SequenceDataset(Dataset[dict[str, Any]]):
         targets: list[np.ndarray] = []
         masks: list[np.ndarray] = []
         if not self.cache_site_arrays:
-            with xr.open_dataset(row["target_source"],engine="h5netcdf",decode_cf=False,mask_and_scale=False) as dataset: cached_targets=[np.asarray(dataset[c].values,dtype=np.float32) for c in TARGET_CHANNELS]
+            with xr.open_dataset(row["target_source"],engine="h5netcdf",decode_cf=False,mask_and_scale=False) as dataset: cached_targets=[read_target(dataset,c) for c in TARGET_CHANNELS]
         for channel,all_values in zip(TARGET_CHANNELS,cached_targets):
                 values=all_values[target_index]
                 masked = mask_implausible(values, channel)

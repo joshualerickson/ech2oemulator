@@ -45,7 +45,7 @@ def main() -> None:
     )
     template = template.replace(
         "<body><h1>",
-        "<body><nav class=\"nav\"><a href=\"index.html\">Overview</a><a href=\"fixed_window_model_comparison.html\">Model comparison</a><a class=\"active\" href=\"pixel_strata_explorer.html\">Terrain & climate strata</a><a href=\"pixel_joint_heatmap.html\">Deficit × TPI</a><a href=\"static_feature_sensitivity.html\">Canopy sensitivity</a></nav><h1>",
+        "<body><nav class=\"nav\"><a href=\"index.html\">Overview</a><a href=\"fixed_window_model_comparison.html\">Model comparison</a><a href=\"adult_validation.html\">Adult validation</a><a class=\"active\" href=\"pixel_strata_explorer.html\">Terrain & climate strata</a><a href=\"pixel_joint_heatmap.html\">Deficit × TPI</a><a href=\"static_feature_sensitivity.html\">Canopy sensitivity</a></nav><h1>",
     )
     template = template.replace(
         "</p><div class=\"controls\">",

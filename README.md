@@ -277,6 +277,135 @@ python scripts/fit_dev_normalization.py \
   --output artifacts/normalization/full75_val25_calendar_v3_clean_seq30.json
 ```
 
+### Adult-response experiment (separate target root)
+
+The adult ET-stress ECH2O run stores targets in a flat NetCDF directory while
+the six daily forcings and 13 statics remain under the original site folders.
+Activate the project environment with PyTorch first (for example,
+`conda activate echo`).
+The five emulator targets keep their existing names and order. The adult files
+also contain `et`, which is not part of this five-output model. Their NetCDF
+band axes are `Z1`--`Z5` rather than `time`; the target reader supports both.
+The ECH2O producer confirmed that target band zero is October 1 of the preceding calendar year;
+forcing band zero remains January 1 of the named year. The adapter checks each
+adult target grid against the original target and screens the selected dates
+for missing or out-of-range target values.
+
+Use the last final-training manifest as the source cohort. It contains 463
+sites with the `final_fit_train` label; the adult adapter reports missing
+target files and failed target days explicitly in `site_audit.csv` and
+`rejected_days.csv`, and omits them from its new manifest:
+
+```bash
+python scripts/build_adult_target_manifest.py \
+  --source-manifest artifacts/manifests/final_all463_calendar_v3_seq90/manifest.csv \
+  --target-root /mnt/alpheus1/zholden/ech2o_projects/ech2o_ai_adult/ech2o_ncdf_240_adult \
+  --output-dir artifacts/manifests/adult_final_seq90_v1
+```
+
+This final-fit conversion retained 462 sites and 56,054 windows. It records
+292 failed target dates in `rejected_days.csv`; one missing adult file
+(`ID4549011522720170729`) accounts for 122 more source windows. No original
+response values are substituted for adult responses.
+
+Audit the full adult final-fit cohort, including the six sites added after the
+earlier split:
+
+```bash
+python scripts/audit_manifest_target_artifacts.py \
+  --manifest artifacts/manifests/adult_final_seq90_v1/manifest.csv \
+  --output-dir artifacts/reports/adult_final_seq90_target_artifacts_v1 \
+  --months 6 7 8 9 --workers 4
+
+python scripts/build_target_artifact_triage.py \
+  --daily-audit artifacts/reports/adult_final_seq90_target_artifacts_v1/manifest_target_artifact_daily.csv \
+  --output artifacts/reports/adult_final_seq90_target_artifacts_v1/target_artifact_triage.csv
+```
+
+The first final-fit adult audit scored 281,820 site/day/target maps from all
+462 available sites, with no read failures. Its triage flagged five persistent
+Tskin site/target combinations for visual review; these flags do not yet change
+the manifest. One is the previously reviewed LA-area site
+`CA3399211696420200731`, whose valley/mountain contrast is plausible.
+
+For model comparison with untouched spatial-validation sites, preserve the
+earlier 343/114 split in a separate adult manifest:
+
+```bash
+python scripts/build_adult_target_manifest.py \
+  --source-manifest artifacts/manifests/full75_val25_calendar_v3_clean_seq90/manifest.csv \
+  --target-root /mnt/alpheus1/zholden/ech2o_projects/ech2o_ai_adult/ech2o_ncdf_240_adult \
+  --output-dir artifacts/manifests/adult_seq90_spatial_v1
+```
+
+Review `site_audit.csv`, `rejected_days.csv`, and `summary.json` in that output
+folder. The initial run found 456 matched sites (342 train / 114 validation)
+and 55,324 retained windows. The adult file for
+`ID4549011522720170729` is absent; 290 additional target dates failed Tskin
+bounds. The old source QA and spatial split still identify clean inputs and
+holdout sites, but they do not certify the changed adult target surfaces.
+
+Run the target artifact diagnostic on the new target paths and review the
+per-target seam/edge results before a full training run:
+
+```bash
+python scripts/audit_manifest_target_artifacts.py \
+  --manifest artifacts/manifests/adult_seq90_spatial_v1/manifest.csv \
+  --output-dir artifacts/reports/adult_seq90_target_artifacts_v1 \
+  --months 6 7 8 9 --workers 8
+
+python scripts/build_target_artifact_triage.py \
+  --daily-audit artifacts/reports/adult_seq90_target_artifacts_v1/manifest_target_artifact_daily.csv \
+  --site-geometry artifacts/manifests/full75_val25_calendar_v3_clean_seq30/site_split_audit.csv \
+  --output artifacts/reports/adult_seq90_target_artifacts_v1/target_artifact_triage.csv
+```
+
+The initial adult artifact audit scored 278,160 site/day/target maps with no
+read failures. Its triage produced five persistent Tskin site/target candidates
+and additional day/timeline review flags. These scores are review aids, not
+automatic site exclusions; for example, `CA3399211696420200731` previously
+proved to have legitimate valley/mountain thermal contrast despite a large
+seam score. Inspect the new adult maps before deciding whether to exclude any
+additional site or day. If exclusions are confirmed, apply them to a derived
+adult manifest and refit normalization from that exact training split.
+
+Fit new normalization from adult `dev_train` rows only. Do not reuse the old
+normalization or optimizer state for a model whose PLC response changed:
+
+```bash
+python scripts/fit_dev_normalization.py \
+  --manifest artifacts/manifests/adult_seq90_spatial_v1/manifest.csv \
+  --split dev_train \
+  --output artifacts/normalization/adult_seq90_spatial_v1.json
+
+python scripts/train_dev_cpu.py \
+  --manifest artifacts/manifests/adult_seq90_spatial_v1/manifest.csv \
+  --normalization artifacts/normalization/adult_seq90_spatial_v1.json \
+  --checkpoint artifacts/checkpoints/adult_seq90_lstm_v1.pt \
+  --train-split dev_train --validation-split dev_spatial_val \
+  --epochs 50 --batch-size 16 --threads 32 --interop-threads 1 \
+  --seed 20260803 --device auto --recurrent-cell lstm \
+  --enforce-physical-bounds --early-stopping-patience 10
+```
+
+After reviewing the adult validation results and artifact triage, fit the
+final 462-site cohort with fresh statistics. This manifest has only
+`final_fit_train` rows, so it cannot provide an unbiased validation score.
+Choose the epoch count using the separate adult spatial-validation experiment;
+do not assume the original model's best epoch still applies.
+
+```bash
+python scripts/fit_dev_normalization.py \
+  --manifest artifacts/manifests/adult_final_seq90_v1/manifest.csv \
+  --split final_fit_train \
+  --output artifacts/normalization/adult_final_seq90_v1.json
+```
+
+The adult files number bands from 1, but do not encode calendar dates; the
+producer confirmed the Oct. 1 water-year origin. A same-index Tskin AM series
+spot check also supported the alignment (correlation 0.99994, versus about
+0.23 after a 90-day shift).
+
 ### Final deployment ConvLSTM (all QA-approved sites)
 
 After model selection is complete, build a separate final-fit manifest that
@@ -513,14 +642,42 @@ python scripts/build_model_comparison_html.py ...
 python scripts/build_pixel_strata_html.py ...
 python scripts/build_pixel_joint_heatmap_html.py ...
 python scripts/build_static_sensitivity_html.py ...
+python scripts/build_adult_validation_html.py \
+  --metrics-dir artifacts/metrics/adult_seq90_lstm_e33_spatial_validation \
+  --manifest artifacts/manifests/adult_seq90_spatial_v1/manifest.csv \
+  --output artifacts/reports/adult_validation.html
 python scripts/publish_dashboard_site.py --reports-dir artifacts/reports --site-dir site
 python -m http.server 8080 --directory site
 ```
+
+To refresh the tracked GitHub Pages copy after rebuilding the reports, rerun
+the publisher with `--site-dir public`, then review and commit the changed
+`public/` files. The generated adult validation page is self-contained HTML;
+no private NetCDFs or checkpoint files are copied into `public/`.
 
 The generated `site/` directory is intentionally ignored by Git. It contains
 only the HTML reports selected for the homelab deployment; source data,
 checkpoints, GeoTIFFs, and other artifacts remain private. See
 [homelab deployment notes](docs/homelab_dashboard.md).
+
+The adult-response page uses the separate adult target NetCDFs and the
+site-disjoint `dev_spatial_val` split. Its checkpoint is selected by validation
+loss; the displayed MAE, RMSE, bias, correlation, R², and SD ratio are computed
+from all valid June–September pixel pairs at the best checkpoint. Because the
+adult response values differ from the earlier target data, do not directly rank
+the adult scores against the original-model comparison. The adult page includes
+month, state, and site views to locate spatial or seasonal failures.
+
+To refresh the adult metrics before rebuilding its page:
+
+```bash
+python scripts/evaluate_validation_manifest.py \
+  --manifest artifacts/manifests/adult_seq90_spatial_v1/manifest.csv \
+  --checkpoint artifacts/checkpoints/adult_seq90_lstm_v1_best.pt \
+  --normalization artifacts/normalization/adult_seq90_spatial_v1.json \
+  --output-dir artifacts/metrics/adult_seq90_lstm_e33_spatial_validation \
+  --split dev_spatial_val --months 6 7 8 9 --batch-size 16 --threads 32
+```
 
 The canopy-sensitivity dashboard is documented in
 [static feature sensitivity](docs/static_feature_sensitivity.md). It presents

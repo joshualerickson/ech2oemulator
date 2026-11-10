@@ -26,6 +26,7 @@ import xarray as xr
 from scripts.benchmark_target_artifacts import finite_array, spatial_scores
 from src.data.phase2_qc import TARGET_CHANNELS
 from src.data.temporal_contract import target_dates
+from src.data.target_source import read_target, target_time_count
 
 
 SCORE_NAMES = ("legacy_blockiness", "row_seam_ratio", "column_seam_ratio", "edge_gradient_ratio", "corner_jump_ratio", "high_frequency_ratio")
@@ -36,13 +37,13 @@ def parse_manifest(path: Path) -> dict[str, dict[str, str]]:
         rows = list(csv.DictReader(handle))
     sites: dict[str, dict[str, str]] = {}
     for row in rows:
-        if row.get("split") not in {"dev_train", "dev_spatial_val"}:
+        if row.get("split") not in {"dev_train", "dev_spatial_val", "final_fit_train"}:
             continue
         prior = sites.setdefault(row["site_id"], row)
         if prior["split"] != row["split"] or prior["water_year_end"] != row["water_year_end"]:
             raise ValueError(f"{row['site_id']}: conflicting split or water-year values in manifest")
     if not sites:
-        raise ValueError("Manifest contains no dev_train or dev_spatial_val sites")
+        raise ValueError("Manifest contains no dev_train, dev_spatial_val, or final_fit_train sites")
     return sites
 
 
@@ -70,24 +71,26 @@ def parse_schema_report(path: Path) -> dict[str, dict[str, str]]:
 def audit_site(args: tuple[dict[str, str], str, tuple[int, ...]]) -> list[dict[str, object]]:
     row, data_root_text, months = args
     site_id, water_year = row["site_id"], int(row["water_year_end"])
-    path = Path(data_root_text) / site_id / f"{site_id}-{water_year}_subdaily.nc"
+    path = Path(row["target_source"]) if row.get("target_source") else Path(data_root_text) / site_id / f"{site_id}-{water_year}_subdaily.nc"
     if not path.is_file():
         raise FileNotFoundError(path)
     results: list[dict[str, object]] = []
     with xr.open_dataset(path, engine="h5netcdf", decode_cf=False, mask_and_scale=False) as dataset:
-        count = int(dataset.sizes["time"])
+        count = target_time_count(dataset, TARGET_CHANNELS[0])
+        height = int(dataset.sizes["northing"])
+        width = int(dataset.sizes["easting"])
         dates = target_dates(water_year, count)
         indices = [index for index, day in enumerate(dates) if day.month in months]
         for target in TARGET_CHANNELS:
-            stack = finite_array(dataset[target].isel(time=indices).values)
+            stack = finite_array(read_target(dataset, target, indices))
             for local_index, source_index in enumerate(indices):
                 results.append({
                     "site_id": site_id,
                     "split": row["split"],
                     "water_year_end": water_year,
                     "target": target,
-                    "target_height": row.get("target_height", ""),
-                    "target_width": row.get("target_width", ""),
+                    "target_height": height,
+                    "target_width": width,
                     "target_time_index": source_index,
                     "target_date": dates[source_index].isoformat(),
                     **spatial_scores(stack[local_index]),
@@ -105,14 +108,17 @@ def metric_summary(values: list[float | None]) -> dict[str, float | None]:
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     source = parser.add_mutually_exclusive_group(required=True)
-    source.add_argument("--manifest", type=Path, help="Persisted split manifest; audits dev_train and dev_spatial_val only.")
+    source.add_argument("--manifest", type=Path, help="Persisted split or final-fit manifest; audits its listed target paths.")
     source.add_argument("--schema-report", type=Path, help="Phase 1 report; audits every source-valid bundle before a new split.")
-    parser.add_argument("--data-root", type=Path, required=True)
+    parser.add_argument("--data-root", type=Path,
+                        help="Required with --schema-report; with --manifest, target_source paths take priority.")
     parser.add_argument("--output-dir", type=Path, required=True)
     parser.add_argument("--months", type=int, nargs="+", default=[6, 7, 8, 9])
     parser.add_argument("--workers", type=int, default=8, help="Independent NetCDF site reads; use a modest value on shared storage.")
     parser.add_argument("--site-limit", type=int, default=0, help="Optional deterministic smoke-test cap; 0 audits every manifest site.")
     args = parser.parse_args()
+    if args.schema_report and args.data_root is None:
+        parser.error("--data-root is required with --schema-report")
     if args.workers < 1:
         parser.error("--workers must be positive")
     if any(month < 1 or month > 12 for month in args.months):
@@ -123,19 +129,31 @@ def main() -> None:
     if args.site_limit:
         sites = dict(sorted(sites.items())[:args.site_limit])
     args.output_dir.mkdir(parents=True, exist_ok=True)
-    jobs = [(row, str(args.data_root), tuple(sorted(set(args.months)))) for _, row in sorted(sites.items())]
+    jobs = [(row, str(args.data_root or ""), tuple(sorted(set(args.months)))) for _, row in sorted(sites.items())]
     records: list[dict[str, object]] = []
     failures: list[dict[str, str]] = []
-    with ProcessPoolExecutor(max_workers=args.workers) as executor:
-        futures = {executor.submit(audit_site, job): job[0] for job in jobs}
-        for completed, future in enumerate(as_completed(futures), start=1):
-            source = futures[future]
+    if args.workers == 1:
+        # Avoid a process/socket for a single-worker smoke test or host with
+        # restricted process spawning.
+        for completed, job in enumerate(jobs, start=1):
+            source = job[0]
             try:
-                records.extend(future.result())
-            except Exception as error:  # retain a transparent failure record for any source issue
+                records.extend(audit_site(job))
+            except Exception as error:
                 failures.append({"site_id": source["site_id"], "split": source["split"], "error": repr(error)})
-            if completed % 10 == 0 or completed == len(futures):
-                print({"sites_completed": completed, "sites_total": len(futures), "failures": len(failures)}, flush=True)
+            if completed % 10 == 0 or completed == len(jobs):
+                print({"sites_completed": completed, "sites_total": len(jobs), "failures": len(failures)}, flush=True)
+    else:
+        with ProcessPoolExecutor(max_workers=args.workers) as executor:
+            futures = {executor.submit(audit_site, job): job[0] for job in jobs}
+            for completed, future in enumerate(as_completed(futures), start=1):
+                source = futures[future]
+                try:
+                    records.extend(future.result())
+                except Exception as error:  # retain a transparent failure record for any source issue
+                    failures.append({"site_id": source["site_id"], "split": source["split"], "error": repr(error)})
+                if completed % 10 == 0 or completed == len(futures):
+                    print({"sites_completed": completed, "sites_total": len(futures), "failures": len(failures)}, flush=True)
     if not records:
         raise RuntimeError("No artifact records were generated")
     records.sort(key=lambda row: (str(row["split"]), str(row["site_id"]), str(row["target"]), int(row["target_time_index"])))
